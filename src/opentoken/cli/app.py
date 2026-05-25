@@ -39,7 +39,7 @@ app = typer.Typer(help='OpenToken CLI')
 
 @app.command()
 def onboard() -> None:
-    """Initialize the algae state directory."""
+    """Initialize the opentoken state directory."""
     state_dir = initialize_state_dir(resolve_state_dir())
     typer.echo(f'Initialized state directory at {state_dir}')
 
@@ -146,7 +146,7 @@ def start(
     host: str | None = typer.Option(None, '--host'),
     port: int | None = typer.Option(None, '--port'),
 ) -> None:
-    """Start the algae gateway service."""
+    """Start the opentoken gateway service."""
     initialize_state_dir(resolve_state_dir())
     config = load_or_create_app_config(resolve_app_config_path())
     bind_host = host or str(config['host'])
@@ -165,7 +165,7 @@ def config(
     dry_run: bool = typer.Option(False, '--dry-run'),
     opentoken_config: Path | None = typer.Option(None, '--opentoken-config'),
 ) -> None:
-    """Bridge OpenToken to algae."""
+    """Write opentoken provider entries into an upstream OpenClaw-style config."""
     config = load_or_create_app_config(resolve_app_config_path())
     patch = build_algae_provider_patch(
         base_url=f"http://{config['host']}:{config['port']}/v1",
