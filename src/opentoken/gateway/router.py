@@ -26,6 +26,7 @@ from opentoken.providers.manus import ManusApiAdapter
 from opentoken.providers.mimo import MimoWebAdapter
 from opentoken.providers.nim import NimChatAdapter
 from opentoken.providers.qwen import QwenCnWebAdapter, QwenWebAdapter
+from opentoken.providers.unified_proxy import UnifiedProxyAdapter
 from opentoken.failover.model_chain import chain_from_credentials, run_with_chain, stream_with_chain
 from opentoken.models.openai_compat import resolve_requested_model
 from opentoken.providers.registry import supported_provider_keys
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 # Provider types that use direct HTTP API calls (bypass browser pool)
 _HTTP_PROVIDERS = frozenset({
-    "deepseek", "claude", "kimi", "manus", "mimo", "nim",
+    "deepseek", "claude", "kimi", "manus", "mimo", "nim", "unified",
 })
 
 # Providers that support cross-model fallback when rate-limited. NIM is the
@@ -79,6 +80,7 @@ class PoolAwareRouter:
             "manus": ManusApiAdapter(),
             "mimo": MimoWebAdapter(),
             "nim": NimChatAdapter(),
+            "unified": UnifiedProxyAdapter(),
             "doubao": BrowserChatAdapter(
                 provider_name="Doubao",
                 login_hint="opentoken login doubao",

@@ -17,4 +17,5 @@ def test_supported_provider_keys_match_requested_catalog() -> None:
         "mimo",
         "manus",
         "nim",
+        "unified",
     )

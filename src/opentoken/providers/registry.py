@@ -111,6 +111,13 @@ _SUPPORTED_PROVIDERS: tuple[ProviderDefinition, ...] = (
         login_modes=("manual",),
         manual_auth=("api_key",),
     ),
+    ProviderDefinition(
+        key="unified",
+        display_name="Unified Proxy (LiteLLM)",
+        aliases=("unified", "litellm", "proxy"),
+        login_modes=("manual",),
+        manual_auth=("header",),
+    ),
 )
 
 
