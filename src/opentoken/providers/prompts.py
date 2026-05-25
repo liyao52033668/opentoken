@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import base64
+import ipaddress
 import json
 import mimetypes
-from pathlib import Path
+import socket
 import re
 from urllib.parse import unquote_to_bytes, urlparse
 
@@ -125,12 +126,8 @@ def _load_attachment_payload(
         return _decode_data_uri(value, fallback_mime=guessed_mime)
     if value.startswith("http://") or value.startswith("https://"):
         return _fetch_attachment_url(value, fallback_mime=guessed_mime)
-    if value.startswith("file://"):
-        parsed = urlparse(value)
-        return _read_attachment_path(Path(parsed.path), fallback_mime=guessed_mime)
-    path = Path(value)
-    if path.exists() and path.is_file():
-        return _read_attachment_path(path, fallback_mime=guessed_mime)
+    # file:// 与裸本地路径直接拒绝：网关面向公网时这会变成任意本地文件读取漏洞。
+    # 客户端需要通过 /v1/files 上传后用 file_id 引用。
     return None
 
 
@@ -155,17 +152,48 @@ def _decode_data_uri(value: str, *, fallback_mime: str | None) -> tuple[bytes, s
 
 
 def _fetch_attachment_url(url: str, *, fallback_mime: str | None) -> tuple[bytes, str | None] | None:
-    with httpx.Client(timeout=10.0, trust_env=False, follow_redirects=True) as client:
+    if not _is_public_http_url(url):
+        return None
+    with httpx.Client(timeout=10.0, trust_env=False, follow_redirects=False) as client:
         response = client.get(url)
+        # 不允许重定向：上游可借 302 跨越 SSRF 防线指向内网或 file://。
+        if response.status_code in {301, 302, 303, 307, 308}:
+            return None
         response.raise_for_status()
         content_type = str(response.headers.get("content-type", "")).split(";", 1)[0].strip().lower()
         return _clamp_attachment_bytes(response.content), content_type or fallback_mime
 
 
-def _read_attachment_path(path: Path, *, fallback_mime: str | None) -> tuple[bytes, str | None] | None:
-    raw = path.read_bytes()
-    mime_type = mimetypes.guess_type(path.name)[0] or fallback_mime
-    return _clamp_attachment_bytes(raw), mime_type
+def _is_public_http_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    host = (parsed.hostname or "").strip()
+    if not host:
+        return False
+    # 即便目标域名公开,也要把它解析出的所有 IP 一一校验,否则可被 DNS 重绑或公开域名指内网绕过。
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
+    except OSError:
+        return False
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_multicast
+            or addr.is_reserved
+            or addr.is_unspecified
+        ):
+            return False
+    return True
 
 
 def _clamp_attachment_bytes(raw: bytes) -> bytes:

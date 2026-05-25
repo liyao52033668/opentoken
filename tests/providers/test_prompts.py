@@ -42,20 +42,65 @@ def test_stringify_message_content_embeds_text_file_contents_from_data_uri() -> 
     assert "Hello from attachment!" in content
 
 
-def test_stringify_message_content_embeds_local_text_file_contents(tmp_path) -> None:
-    file_path = tmp_path / "report.md"
-    file_path.write_text("# Title\n\nlocal attachment body", encoding="utf-8")
+def test_stringify_message_content_does_not_read_local_file_paths(tmp_path) -> None:
+    file_path = tmp_path / "secret.md"
+    file_path.write_text("SENSITIVE_CONTENTS_DO_NOT_LEAK", encoding="utf-8")
 
     content = stringify_message_content(
         [
             {
                 "type": "input_file",
-                "filename": "report.md",
+                "filename": "secret.md",
                 "file_url": str(file_path),
             }
         ]
     )
 
-    assert f"[Attached file: report.md | {file_path}]" in content
-    assert "[Attached file content: report.md]" in content
-    assert "local attachment body" in content
+    assert "SENSITIVE_CONTENTS_DO_NOT_LEAK" not in content
+    assert "Attached file content" not in content
+
+
+def test_stringify_message_content_does_not_follow_file_uri(tmp_path) -> None:
+    file_path = tmp_path / "secret.md"
+    file_path.write_text("FILE_URI_SECRET", encoding="utf-8")
+
+    content = stringify_message_content(
+        [
+            {
+                "type": "input_file",
+                "filename": "secret.md",
+                "file_url": f"file://{file_path}",
+            }
+        ]
+    )
+
+    assert "FILE_URI_SECRET" not in content
+
+
+def test_stringify_message_content_rejects_private_http_url() -> None:
+    content = stringify_message_content(
+        [
+            {
+                "type": "input_file",
+                "filename": "metadata",
+                "file_url": "http://169.254.169.254/latest/meta-data/",
+            }
+        ]
+    )
+
+    # Private/metadata IPs must be blocked by SSRF guard — content must not include any fetched body.
+    assert "Attached file content" not in content
+
+
+def test_stringify_message_content_rejects_loopback_http_url() -> None:
+    content = stringify_message_content(
+        [
+            {
+                "type": "input_file",
+                "filename": "loop",
+                "file_url": "http://127.0.0.1:8080/secret",
+            }
+        ]
+    )
+
+    assert "Attached file content" not in content
