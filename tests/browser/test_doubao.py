@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import openclaw_algae.browser.doubao as doubao_module
+import opentoken.browser.doubao as doubao_module
 
 
 def test_capture_doubao_browser_credentials_raises_when_camoufox_launch_fails(

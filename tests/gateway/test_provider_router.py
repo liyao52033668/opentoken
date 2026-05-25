@@ -4,16 +4,16 @@ import threading
 
 import pytest
 
-from openclaw_algae.gateway.normalized import NormalizedChatRequest
-from openclaw_algae.gateway.router import ProviderRouter, get_default_router
-from openclaw_algae.models.provider_credentials import ProviderCredentialRecord
-from openclaw_algae.providers.base import ChatResponse, ProviderAdapter
-from openclaw_algae.providers.base import ProviderRateLimitError
-from openclaw_algae.providers.browser import BrowserChatAdapter
-from openclaw_algae.providers.camoufox_clients import CamoufoxProviderClient
-from openclaw_algae.providers.doubao import DoubaoWebAdapter
-from openclaw_algae.providers.qwen import QwenCnWebAdapter
-from openclaw_algae.storage.provider_store import save_provider_credentials
+from opentoken.gateway.normalized import NormalizedChatRequest
+from opentoken.gateway.router import ProviderRouter, get_default_router
+from opentoken.models.provider_credentials import ProviderCredentialRecord
+from opentoken.providers.base import ChatResponse, ProviderAdapter
+from opentoken.providers.base import ProviderRateLimitError
+from opentoken.providers.browser import BrowserChatAdapter
+from opentoken.providers.camoufox_clients import CamoufoxProviderClient
+from opentoken.providers.doubao import DoubaoWebAdapter
+from opentoken.providers.qwen import QwenCnWebAdapter
+from opentoken.storage.provider_store import save_provider_credentials
 
 
 class RecordingAdapter(ProviderAdapter):
@@ -57,7 +57,7 @@ def test_router_loads_provider_credentials_for_deepseek(tmp_path: Path) -> None:
     assert adapter.seen_credentials.headers["authorization"] == "Bearer token"
 
 
-def test_router_accepts_unprefixed_openclaw_model_refs(tmp_path: Path) -> None:
+def test_router_accepts_unprefixed_opentoken_model_refs(tmp_path: Path) -> None:
     providers_dir = tmp_path / "providers"
     save_provider_credentials(
         providers_dir,
@@ -254,11 +254,11 @@ def test_default_router_registers_camoufox_clients_for_browser_providers() -> No
         "glm-intl",
     }
 
-    from openclaw_algae.providers.chatgpt import ChatGPTWebAdapter
-    from openclaw_algae.providers.gemini import GeminiWebAdapter
-    from openclaw_algae.providers.glm import GLMIntlWebAdapter, GLMWebAdapter
-    from openclaw_algae.providers.grok import GrokWebAdapter
-    from openclaw_algae.providers.qwen import QwenWebAdapter
+    from opentoken.providers.chatgpt import ChatGPTWebAdapter
+    from opentoken.providers.gemini import GeminiWebAdapter
+    from opentoken.providers.glm import GLMIntlWebAdapter, GLMWebAdapter
+    from opentoken.providers.grok import GrokWebAdapter
+    from opentoken.providers.qwen import QwenWebAdapter
 
     # Some providers still use API adapters; others now prefer browser-backed
     # adapters because they are closer to the reference implementation and more
@@ -298,7 +298,7 @@ def test_browser_chat_adapter_runs_client_in_dedicated_thread() -> None:
     client = LoopSensitiveClient()
     adapter = BrowserChatAdapter(
         provider_name="Doubao",
-        login_hint="openclaw-algae login doubao",
+        login_hint="opentoken login doubao",
         client_factory=lambda credentials: client,
     )
     credentials = ProviderCredentialRecord(
@@ -331,7 +331,7 @@ def test_browser_chat_adapter_normalizes_non_runtime_exceptions() -> None:
 
     adapter = BrowserChatAdapter(
         provider_name="Doubao",
-        login_hint="openclaw-algae login doubao",
+        login_hint="opentoken login doubao",
         client_factory=lambda credentials: ExplodingClient(),
     )
     credentials = ProviderCredentialRecord(

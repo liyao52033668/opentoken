@@ -9,7 +9,7 @@ import httpx
 
 
 def load_api_key() -> str:
-    config_path = Path.home() / ".openclaw-algae" / "config.json"
+    config_path = Path.home() / ".opentoken" / "config.json"
     with config_path.open() as f:
         return json.load(f)["api_key"]
 
@@ -109,7 +109,7 @@ def main():
     api_key = load_api_key()
 
     print("=" * 60)
-    print("OpenClaw Algae Regression Tests")
+    print("OpenToken Regression Tests")
     print("=" * 60)
 
     models_ok, all_models = test_models(base_url, api_key)

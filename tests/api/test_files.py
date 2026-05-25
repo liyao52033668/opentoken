@@ -4,8 +4,8 @@ import io
 
 from fastapi.testclient import TestClient
 
-from openclaw_algae.api.app import create_app
-import openclaw_algae.api.routes.files as files_route_module
+from opentoken.api.app import create_app
+import opentoken.api.routes.files as files_route_module
 
 
 def test_files_create_retrieve_list_content_and_delete(monkeypatch, tmp_path) -> None:

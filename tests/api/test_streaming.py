@@ -1,4 +1,4 @@
-from openclaw_algae.api.streaming import ProtocolMarkupProjector, chunk_visible_text, strip_tool_protocol_markup
+from opentoken.api.streaming import ProtocolMarkupProjector, chunk_visible_text, strip_tool_protocol_markup
 
 
 def test_protocol_markup_projector_preserves_fragmented_think_tags_and_hides_tool_markup() -> None:

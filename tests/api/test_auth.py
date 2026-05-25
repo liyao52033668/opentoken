@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from openclaw_algae.api.app import create_app
-from openclaw_algae.config.app_config import default_app_config
+from opentoken.api.app import create_app
+from opentoken.config.app_config import default_app_config
 
 
 def test_health_does_not_require_api_key(monkeypatch, tmp_path) -> None:
@@ -17,8 +17,8 @@ def test_models_requires_bearer_api_key(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     config = default_app_config()
     config["api_key"] = "test-key"
-    (tmp_path / ".openclaw-algae").mkdir(parents=True, exist_ok=True)
-    (tmp_path / ".openclaw-algae" / "config.json").write_text(
+    (tmp_path / ".opentoken").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".opentoken" / "config.json").write_text(
         '{"api_key":"test-key","host":"127.0.0.1","port":32117}',
         encoding="utf-8",
     )

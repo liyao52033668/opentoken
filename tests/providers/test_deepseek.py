@@ -5,11 +5,11 @@ from hashlib import sha256
 import httpx
 import pytest
 
-from openclaw_algae.gateway.normalized import NormalizedChatRequest
-from openclaw_algae.models.provider_credentials import ProviderCredentialRecord
-from openclaw_algae.providers.base import ProviderRateLimitError
-from openclaw_algae.providers import deepseek as deepseek_provider
-from openclaw_algae.providers.deepseek import DeepSeekWebAdapter, DeepSeekWebClient
+from opentoken.gateway.normalized import NormalizedChatRequest
+from opentoken.models.provider_credentials import ProviderCredentialRecord
+from opentoken.providers.base import ProviderRateLimitError
+from opentoken.providers import deepseek as deepseek_provider
+from opentoken.providers.deepseek import DeepSeekWebAdapter, DeepSeekWebClient
 
 
 def test_deepseek_web_client_builds_reference_headers() -> None:

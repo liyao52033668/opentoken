@@ -1,8 +1,8 @@
 import threading
 
-from openclaw_algae.gateway.normalized import NormalizedChatRequest
-from openclaw_algae.models.provider_credentials import ProviderCredentialRecord
-from openclaw_algae.providers.browser import (
+from opentoken.gateway.normalized import NormalizedChatRequest
+from opentoken.models.provider_credentials import ProviderCredentialRecord
+from opentoken.providers.browser import (
     BrowserChatAdapter,
     BrowserProviderClient,
     _run_browser_stream,
@@ -32,7 +32,7 @@ def test_browser_chat_adapter_uses_prompt_history() -> None:
     client = FakeBrowserClient()
     adapter = BrowserChatAdapter(
         provider_name="Qwen International",
-        login_hint="openclaw-algae login qwen international",
+        login_hint="opentoken login qwen international",
         client_factory=lambda _: client,
     )
 
@@ -55,7 +55,7 @@ def test_browser_chat_adapter_uses_prompt_history() -> None:
 def test_browser_chat_adapter_requires_credentials() -> None:
     adapter = BrowserChatAdapter(
         provider_name="Gemini",
-        login_hint="openclaw-algae login gemini",
+        login_hint="opentoken login gemini",
         client_factory=lambda _: FakeBrowserClient(),
     )
 
@@ -93,7 +93,7 @@ def test_browser_chat_adapter_maps_tagged_tool_response_to_openai_tool_calls() -
     client = ToolBrowserClient()
     adapter = BrowserChatAdapter(
         provider_name="Gemini",
-        login_hint="openclaw-algae login gemini",
+        login_hint="opentoken login gemini",
         client_factory=lambda _: client,
     )
 
@@ -152,7 +152,7 @@ def test_browser_chat_adapter_repairs_malformed_tagged_output_before_returning_t
     client = RepairingBrowserClient()
     adapter = BrowserChatAdapter(
         provider_name="Gemini",
-        login_hint="openclaw-algae login gemini",
+        login_hint="opentoken login gemini",
         client_factory=lambda _: client,
     )
 
@@ -210,7 +210,7 @@ def test_browser_chat_adapter_repairs_final_answer_when_user_explicitly_requests
     client = RepairingAutoToolClient()
     adapter = BrowserChatAdapter(
         provider_name="Doubao",
-        login_hint="openclaw-algae login doubao",
+        login_hint="opentoken login doubao",
         client_factory=lambda _: client,
     )
 
@@ -268,7 +268,7 @@ def test_browser_chat_adapter_formats_tool_result_followup_as_tool_response_bloc
     client = ToolFollowupClient()
     adapter = BrowserChatAdapter(
         provider_name="Gemini",
-        login_hint="openclaw-algae login gemini",
+        login_hint="opentoken login gemini",
         client_factory=lambda _: client,
     )
 
@@ -341,7 +341,7 @@ def test_browser_chat_adapter_stream_chat_uses_client_stream_when_available() ->
     client = StreamingBrowserClient()
     adapter = BrowserChatAdapter(
         provider_name="Gemini",
-        login_hint="openclaw-algae login gemini",
+        login_hint="opentoken login gemini",
         client_factory=lambda _: client,
     )
 
@@ -388,7 +388,7 @@ def test_browser_chat_adapter_stream_chat_falls_back_to_non_stream_chat_when_str
     client = EmptyStreamingClient()
     adapter = BrowserChatAdapter(
         provider_name="Doubao",
-        login_hint="openclaw-algae login doubao",
+        login_hint="opentoken login doubao",
         client_factory=lambda _: client,
     )
 
@@ -430,7 +430,7 @@ def test_browser_chat_adapter_stream_chat_can_disable_non_stream_fallback_on_fai
     client = FailingStreamingClient()
     adapter = BrowserChatAdapter(
         provider_name="Doubao",
-        login_hint="openclaw-algae login doubao",
+        login_hint="opentoken login doubao",
         client_factory=lambda _: client,
         fallback_to_non_stream_chat_on_stream_failure=False,
     )
@@ -592,7 +592,7 @@ def test_browser_chat_adapter_prefers_tool_chat_completion_when_available() -> N
     client = ToolCapableClient()
     adapter = BrowserChatAdapter(
         provider_name="Doubao",
-        login_hint="openclaw-algae login doubao",
+        login_hint="opentoken login doubao",
         client_factory=lambda _: client,
     )
 
@@ -651,14 +651,14 @@ def test_browser_chat_adapter_runs_tool_chat_completion_on_browser_worker(
         return str(invoke())
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.browser._run_browser_completion",
+        "opentoken.providers.browser._run_browser_completion",
         fake_run_browser_completion,
     )
 
     client = ToolCapableClient()
     adapter = BrowserChatAdapter(
         provider_name="Doubao",
-        login_hint="openclaw-algae login doubao",
+        login_hint="opentoken login doubao",
         client_factory=lambda _: client,
     )
 

@@ -1,6 +1,6 @@
 from typer.testing import CliRunner
 
-from openclaw_algae.cli.app import app
+from opentoken.cli.app import app
 
 
 def test_cli_help_shows_core_commands() -> None:

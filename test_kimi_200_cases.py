@@ -13,7 +13,7 @@ import httpx
 
 BASE_URL = "http://127.0.0.1:32117"
 CLIENT = httpx.Client(trust_env=False)
-API_KEY = json.loads((Path.home() / ".openclaw-algae" / "config.json").read_text())["api_key"]
+API_KEY = json.loads((Path.home() / ".opentoken" / "config.json").read_text())["api_key"]
 HEADERS = {
     "Content-Type": "application/json",
     "Authorization": f"Bearer {API_KEY}",
@@ -40,7 +40,7 @@ results: list[CaseResult] = []
 def restart_server() -> None:
     subprocess.run("lsof -i :32117 | grep LISTEN | awk '{print $2}' | xargs kill -9 2>/dev/null || true", shell=True, check=False)
     time.sleep(2)
-    subprocess.Popen("uv run openclaw-algae start >/tmp/algae-kimi-case.log 2>&1", shell=True)
+    subprocess.Popen("uv run opentoken start >/tmp/algae-kimi-case.log 2>&1", shell=True)
     deadline = time.time() + 20
     while time.time() < deadline:
         try:

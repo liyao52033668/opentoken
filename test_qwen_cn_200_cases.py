@@ -11,7 +11,7 @@ from collections import Counter
 import httpx
 
 BASE_URL = "http://127.0.0.1:32117"
-API_KEY = json.loads((Path.home() / ".openclaw-algae" / "config.json").read_text())["api_key"]
+API_KEY = json.loads((Path.home() / ".opentoken" / "config.json").read_text())["api_key"]
 HEADERS = {
     "Content-Type": "application/json",
     "Authorization": f"Bearer {API_KEY}",

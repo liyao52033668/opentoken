@@ -2,11 +2,11 @@ from fastapi.testclient import TestClient
 import httpx
 import json
 
-from openclaw_algae.providers.base import ChatResponse
-from openclaw_algae.providers.base import ProviderRateLimitError
+from opentoken.providers.base import ChatResponse
+from opentoken.providers.base import ProviderRateLimitError
 
-from openclaw_algae.api.app import create_app
-import openclaw_algae.api.routes.chat as chat_route_module
+from opentoken.api.app import create_app
+import opentoken.api.routes.chat as chat_route_module
 
 
 class FakeRouter:

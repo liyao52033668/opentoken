@@ -1,11 +1,11 @@
-from openclaw_algae.models.discovery import (
+from opentoken.models.discovery import (
     _extract_doubao_models_from_html,
     _extract_glm_cn_models_from_html,
     _extract_qwen_cn_models_from_dialog_text,
     _extract_qwen_intl_models_from_html,
     load_model_catalog,
 )
-from openclaw_algae.models.provider_credentials import ProviderCredentialRecord
+from opentoken.models.provider_credentials import ProviderCredentialRecord
 
 
 def test_extract_qwen_intl_models_from_html_returns_model_entries() -> None:
@@ -89,11 +89,11 @@ def test_load_model_catalog_replaces_fallback_provider_entries_with_dynamic_disc
     )
 
     monkeypatch.setattr(
-        "openclaw_algae.models.discovery.load_provider_credentials",
+        "opentoken.models.discovery.load_provider_credentials",
         lambda providers_dir, provider: credentials if provider == "qwen-intl" else None,
     )
     monkeypatch.setattr(
-        "openclaw_algae.models.discovery._DISCOVERERS",
+        "opentoken.models.discovery._DISCOVERERS",
         {
             "qwen-intl": lambda credentials, state_dir: [
                 ("qwen3.6-plus", "Qwen3.6-Plus"),

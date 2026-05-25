@@ -1,6 +1,6 @@
-from openclaw_algae.browser.common import CamoufoxRuntimeStatus
-from openclaw_algae.models.provider_credentials import ProviderCredentialRecord
-from openclaw_algae.verification.service import (
+from opentoken.browser.common import CamoufoxRuntimeStatus
+from opentoken.models.provider_credentials import ProviderCredentialRecord
+from opentoken.verification.service import (
     EndpointVerificationResult,
     ProviderVerificationResult,
     VerificationReport,
@@ -8,9 +8,9 @@ from openclaw_algae.verification.service import (
     run_verification_suite,
     verification_exit_code,
 )
-import openclaw_algae.api.routes.chat as chat_route_module
-import openclaw_algae.api.routes.responses as responses_route_module
-import openclaw_algae.verification.service as verification_service_module
+import opentoken.api.routes.chat as chat_route_module
+import opentoken.api.routes.responses as responses_route_module
+import opentoken.verification.service as verification_service_module
 
 
 def test_verification_exit_code_ignores_unlogged_providers_for_full_matrix() -> None:

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openclaw_algae.models.provider_credentials import ProviderCredentialRecord
-from openclaw_algae.storage.provider_sessions import (
+from opentoken.models.provider_credentials import ProviderCredentialRecord
+from opentoken.storage.provider_sessions import (
     load_provider_session,
     save_provider_session,
 )

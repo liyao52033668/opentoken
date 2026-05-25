@@ -4,10 +4,10 @@ import threading
 import time
 
 import httpx
-import openclaw_algae.providers.camoufox_clients as camoufox_module
-from openclaw_algae.models.provider_credentials import ProviderCredentialRecord
-from openclaw_algae.providers.base import ProviderRateLimitError
-from openclaw_algae.providers.camoufox_clients import (
+import opentoken.providers.camoufox_clients as camoufox_module
+from opentoken.models.provider_credentials import ProviderCredentialRecord
+from opentoken.providers.base import ProviderRateLimitError
+from opentoken.providers.camoufox_clients import (
     CamoufoxProviderClient,
     _DOUBAO_URL,
     _GLMIntlDomStreamProjector,
@@ -425,7 +425,7 @@ def test_stream_glm_intl_prefers_api_stream_before_dom_fallback(monkeypatch) -> 
         ),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: (_ for _ in ()).throw(
             AssertionError("Browser session should not be created when API stream succeeds")
         ),
@@ -1377,11 +1377,11 @@ def test_chat_qwen_cn_prefers_browser_fetch_over_dom_fallback(monkeypatch) -> No
 
     monkeypatch.setattr(CamoufoxProviderClient, "_with_page", fake_with_page)
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._fetch_qwen_cn_browser_completion",
+        "opentoken.providers.camoufox_clients._fetch_qwen_cn_browser_completion",
         fake_fetch,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._dom_send_and_wait_qwen_cn",
+        "opentoken.providers.camoufox_clients._dom_send_and_wait_qwen_cn",
         unexpected_dom,
     )
 
@@ -1587,19 +1587,19 @@ def test_chat_glm_cn_ignores_persisted_conversation_and_falls_back_to_dom_on_tim
         "chatglm_refresh_token": "refresh",
     })
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.load_provider_session",
+        "opentoken.providers.camoufox_clients.load_provider_session",
         lambda *args, **kwargs: {"device_id": "device-from-store", "conversation_id": "conv-from-store"},
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.save_provider_session",
+        "opentoken.providers.camoufox_clients.save_provider_session",
         lambda *args, **kwargs: saved_states.append(kwargs["state"]),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._refresh_glm_access_token",
+        "opentoken.providers.camoufox_clients._refresh_glm_access_token",
         lambda *args, **kwargs: "fresh-token",
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._dom_send_and_wait_glm_cn",
+        "opentoken.providers.camoufox_clients._dom_send_and_wait_glm_cn",
         lambda page, message: "glm dom fallback ok",
     )
     monkeypatch.setattr(CamoufoxProviderClient, "_with_page", lambda self, *, start_url, cookie_domains, action: action(FakeContext(), session.page))
@@ -1650,11 +1650,11 @@ def test_stream_glm_cn_prefers_browser_stream_and_ignores_persisted_conversation
     )
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: session,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._page_is_closed",
+        "opentoken.providers.camoufox_clients._page_is_closed",
         lambda page: False,
     )
     monkeypatch.setattr(
@@ -1677,7 +1677,7 @@ def test_stream_glm_cn_prefers_browser_stream_and_ignores_persisted_conversation
         lambda self, context, cookie_map: None,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._is_jwt_expired",
+        "opentoken.providers.camoufox_clients._is_jwt_expired",
         lambda token, buffer_seconds=60: False,
     )
     monkeypatch.setattr(
@@ -1697,7 +1697,7 @@ def test_stream_glm_cn_prefers_browser_stream_and_ignores_persisted_conversation
         ),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_glm_cn_browser_completion",
+        "opentoken.providers.camoufox_clients._stream_glm_cn_browser_completion",
         lambda page, *, session, client, message, model, access_token, device_id: (
             seen.update(
                 {
@@ -1712,7 +1712,7 @@ def test_stream_glm_cn_prefers_browser_stream_and_ignores_persisted_conversation
         ),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._dom_send_and_wait_glm_cn",
+        "opentoken.providers.camoufox_clients._dom_send_and_wait_glm_cn",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("browser stream should avoid DOM fallback in this test")
         ),
@@ -1853,11 +1853,11 @@ def test_chat_glm_cn_uses_normal_chat_mode_for_non_think_models(monkeypatch) -> 
         "chatglm_refresh_token": "refresh",
     })
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.load_provider_session",
+        "opentoken.providers.camoufox_clients.load_provider_session",
         lambda *args, **kwargs: {},
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._refresh_glm_access_token",
+        "opentoken.providers.camoufox_clients._refresh_glm_access_token",
         lambda *args, **kwargs: "fresh-token",
     )
     monkeypatch.setattr(
@@ -2838,11 +2838,11 @@ def test_stream_doubao_prefers_browser_stream_over_dom_fallback(monkeypatch) -> 
     )
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: session,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._page_is_closed",
+        "opentoken.providers.camoufox_clients._page_is_closed",
         lambda page: False,
     )
     monkeypatch.setattr(
@@ -2851,11 +2851,11 @@ def test_stream_doubao_prefers_browser_stream_over_dom_fallback(monkeypatch) -> 
         lambda self, context, cookie_domains: None,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._select_doubao_model",
+        "opentoken.providers.camoufox_clients._select_doubao_model",
         lambda page, model: None,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_browser_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_browser_completion",
         lambda page, *, session, client, message, model: iter(["real", " stream"]),
     )
 
@@ -2863,7 +2863,7 @@ def test_stream_doubao_prefers_browser_stream_over_dom_fallback(monkeypatch) -> 
         raise AssertionError("DOM fallback should not run when browser stream succeeds")
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_dom_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_dom_completion",
         unexpected_dom,
     )
 
@@ -2908,11 +2908,11 @@ def test_stream_doubao_defaults_to_browser_first_even_for_pro_and_thinking_model
         )
 
         monkeypatch.setattr(
-            "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+            "opentoken.providers.camoufox_clients._get_or_create_browser_session",
             lambda **kwargs: session,
         )
         monkeypatch.setattr(
-            "openclaw_algae.providers.camoufox_clients._page_is_closed",
+            "opentoken.providers.camoufox_clients._page_is_closed",
             lambda page: False,
         )
         monkeypatch.setattr(
@@ -2921,17 +2921,17 @@ def test_stream_doubao_defaults_to_browser_first_even_for_pro_and_thinking_model
             lambda self, context, cookie_domains: None,
         )
         monkeypatch.setattr(
-            "openclaw_algae.providers.camoufox_clients._select_doubao_model",
+            "opentoken.providers.camoufox_clients._select_doubao_model",
             lambda page, selected_model: call_order.append(f"select:{selected_model}"),
         )
         monkeypatch.setattr(
-            "openclaw_algae.providers.camoufox_clients._stream_doubao_browser_completion",
+            "opentoken.providers.camoufox_clients._stream_doubao_browser_completion",
             lambda page, *, session, client, message, model: (
                 call_order.append("browser") or iter(["ok"])
             ),
         )
         monkeypatch.setattr(
-            "openclaw_algae.providers.camoufox_clients._stream_doubao_dom_completion",
+            "opentoken.providers.camoufox_clients._stream_doubao_dom_completion",
             lambda *args, **kwargs: (_ for _ in ()).throw(
                 AssertionError("DOM should not run before browser by default")
             ),
@@ -2976,11 +2976,11 @@ def test_stream_doubao_falls_back_to_dom_when_browser_stream_completes_silently(
     )
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: session,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._page_is_closed",
+        "opentoken.providers.camoufox_clients._page_is_closed",
         lambda page: False,
     )
     monkeypatch.setattr(
@@ -2989,17 +2989,17 @@ def test_stream_doubao_falls_back_to_dom_when_browser_stream_completes_silently(
         lambda self, context, cookie_domains: None,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._select_doubao_model",
+        "opentoken.providers.camoufox_clients._select_doubao_model",
         lambda page, model: call_order.append(f"select:{model}"),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_browser_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_browser_completion",
         lambda page, *, session, client, message, model: (
             call_order.append("browser") or iter(())
         ),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_dom_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_dom_completion",
         lambda page, *, session, client, message, model: (
             call_order.append("dom") or iter(["补", "救"])
         ),
@@ -3060,11 +3060,11 @@ def test_stream_doubao_falls_back_to_dom_when_browser_stream_startup_times_out(m
         raising=False,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: session,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._page_is_closed",
+        "opentoken.providers.camoufox_clients._page_is_closed",
         lambda page: False,
     )
     monkeypatch.setattr(
@@ -3073,18 +3073,18 @@ def test_stream_doubao_falls_back_to_dom_when_browser_stream_startup_times_out(m
         lambda self, context, cookie_domains: None,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._select_doubao_model",
+        "opentoken.providers.camoufox_clients._select_doubao_model",
         lambda page, model: call_order.append(f"select:{model}"),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_browser_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_browser_completion",
         lambda page, *, session, client, message, model, startup_timeout_seconds=None: (
             call_order.append("browser")
             or slow_browser_stream(startup_timeout_seconds=startup_timeout_seconds)
         ),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_dom_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_dom_completion",
         lambda page, *, session, client, message, model: (
             call_order.append("dom") or iter(["补", "救"])
         ),
@@ -3131,11 +3131,11 @@ def test_stream_doubao_does_not_fallback_to_dom_when_browser_stream_rate_limited
     )
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: session,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._page_is_closed",
+        "opentoken.providers.camoufox_clients._page_is_closed",
         lambda page: False,
     )
     monkeypatch.setattr(
@@ -3144,18 +3144,18 @@ def test_stream_doubao_does_not_fallback_to_dom_when_browser_stream_rate_limited
         lambda self, context, cookie_domains: None,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._select_doubao_model",
+        "opentoken.providers.camoufox_clients._select_doubao_model",
         lambda page, model: call_order.append(f"select:{model}"),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_browser_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_browser_completion",
         lambda page, *, session, client, message, model, startup_timeout_seconds=None: (
             call_order.append("browser")
             or (_ for _ in ()).throw(ProviderRateLimitError("rate limited"))
         ),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_dom_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_dom_completion",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("DOM fallback should not run after browser rate limit")
         ),
@@ -3206,11 +3206,11 @@ def test_stream_doubao_ignores_persisted_conversation_id(monkeypatch) -> None:
     )
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: session,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._page_is_closed",
+        "opentoken.providers.camoufox_clients._page_is_closed",
         lambda page: False,
     )
     monkeypatch.setattr(
@@ -3219,15 +3219,15 @@ def test_stream_doubao_ignores_persisted_conversation_id(monkeypatch) -> None:
         lambda self, context, cookie_domains: None,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.load_provider_session",
+        "opentoken.providers.camoufox_clients.load_provider_session",
         lambda *args, **kwargs: {"conversation_id": "conv-from-store"},
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.resolve_doubao_query_params",
+        "opentoken.providers.camoufox_clients.resolve_doubao_query_params",
         lambda credentials: {"aid": "497858"},
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._select_doubao_model",
+        "opentoken.providers.camoufox_clients._select_doubao_model",
         lambda page, model: None,
     )
 
@@ -3236,11 +3236,11 @@ def test_stream_doubao_ignores_persisted_conversation_id(monkeypatch) -> None:
         yield "fresh"
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_browser_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_browser_completion",
         fake_browser_stream,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_dom_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_dom_completion",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("DOM fallback should not run when browser stream succeeds")
         ),
@@ -3285,11 +3285,11 @@ def test_stream_doubao_prefers_dom_stream_for_pro_models(monkeypatch) -> None:
     )
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: session,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._page_is_closed",
+        "opentoken.providers.camoufox_clients._page_is_closed",
         lambda page: False,
     )
     monkeypatch.setattr(
@@ -3298,25 +3298,25 @@ def test_stream_doubao_prefers_dom_stream_for_pro_models(monkeypatch) -> None:
         lambda self, context, cookie_domains: None,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._select_doubao_model",
+        "opentoken.providers.camoufox_clients._select_doubao_model",
         lambda page, model: call_order.append(f"select:{model}"),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.resolve_doubao_query_params",
+        "opentoken.providers.camoufox_clients.resolve_doubao_query_params",
         lambda credentials: {"aid": "497858"},
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._prefer_dom_first_doubao_stream",
+        "opentoken.providers.camoufox_clients._prefer_dom_first_doubao_stream",
         lambda model: True,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_dom_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_dom_completion",
         lambda page, *, session, client, message, model: (
             call_order.append("dom") or iter(["实", "时"])
         ),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_browser_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_browser_completion",
         lambda page, *, session, client, message, model: (
             call_order.append("browser")
             or (_ for _ in ()).throw(
@@ -3366,11 +3366,11 @@ def test_stream_doubao_falls_back_to_browser_when_dom_stream_completes_silently(
     )
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: session,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._page_is_closed",
+        "opentoken.providers.camoufox_clients._page_is_closed",
         lambda page: False,
     )
     monkeypatch.setattr(
@@ -3379,21 +3379,21 @@ def test_stream_doubao_falls_back_to_browser_when_dom_stream_completes_silently(
         lambda self, context, cookie_domains: None,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._prefer_dom_first_doubao_stream",
+        "opentoken.providers.camoufox_clients._prefer_dom_first_doubao_stream",
         lambda model: True,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._select_doubao_model",
+        "opentoken.providers.camoufox_clients._select_doubao_model",
         lambda page, model: call_order.append(f"select:{model}"),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_dom_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_dom_completion",
         lambda page, *, session, client, message, model: (
             call_order.append("dom") or iter(())
         ),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_browser_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_browser_completion",
         lambda page, *, session, client, message, model: (
             call_order.append("browser") or iter(["补", "救"])
         ),
@@ -3454,11 +3454,11 @@ def test_stream_doubao_falls_back_to_browser_when_dom_stream_startup_times_out(m
         raising=False,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: session,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._page_is_closed",
+        "opentoken.providers.camoufox_clients._page_is_closed",
         lambda page: False,
     )
     monkeypatch.setattr(
@@ -3467,21 +3467,21 @@ def test_stream_doubao_falls_back_to_browser_when_dom_stream_startup_times_out(m
         lambda self, context, cookie_domains: None,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._prefer_dom_first_doubao_stream",
+        "opentoken.providers.camoufox_clients._prefer_dom_first_doubao_stream",
         lambda model: True,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._select_doubao_model",
+        "opentoken.providers.camoufox_clients._select_doubao_model",
         lambda page, model: call_order.append(f"select:{model}"),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_dom_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_dom_completion",
         lambda page, *, session, client, message, model, startup_timeout_seconds=None: (
             call_order.append("dom") or slow_dom_stream(startup_timeout_seconds=startup_timeout_seconds)
         ),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_browser_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_browser_completion",
         lambda page, *, session, client, message, model: (
             call_order.append("browser") or iter(["补", "救"])
         ),
@@ -3528,11 +3528,11 @@ def test_stream_doubao_does_not_fallback_to_browser_when_dom_stream_rate_limited
     )
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: session,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._page_is_closed",
+        "opentoken.providers.camoufox_clients._page_is_closed",
         lambda page: False,
     )
     monkeypatch.setattr(
@@ -3541,22 +3541,22 @@ def test_stream_doubao_does_not_fallback_to_browser_when_dom_stream_rate_limited
         lambda self, context, cookie_domains: None,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._prefer_dom_first_doubao_stream",
+        "opentoken.providers.camoufox_clients._prefer_dom_first_doubao_stream",
         lambda model: True,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._select_doubao_model",
+        "opentoken.providers.camoufox_clients._select_doubao_model",
         lambda page, model: call_order.append(f"select:{model}"),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_dom_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_dom_completion",
         lambda page, *, session, client, message, model, startup_timeout_seconds=None: (
             call_order.append("dom")
             or (_ for _ in ()).throw(ProviderRateLimitError("rate limited"))
         ),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_browser_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_browser_completion",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("Browser fallback should not run after DOM rate limit")
         ),
@@ -3607,11 +3607,11 @@ def test_stream_doubao_prefers_dom_stream_for_thinking_models(monkeypatch) -> No
     )
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: session,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._page_is_closed",
+        "opentoken.providers.camoufox_clients._page_is_closed",
         lambda page: False,
     )
     monkeypatch.setattr(
@@ -3620,25 +3620,25 @@ def test_stream_doubao_prefers_dom_stream_for_thinking_models(monkeypatch) -> No
         lambda self, context, cookie_domains: None,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._select_doubao_model",
+        "opentoken.providers.camoufox_clients._select_doubao_model",
         lambda page, model: call_order.append(f"select:{model}"),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.resolve_doubao_query_params",
+        "opentoken.providers.camoufox_clients.resolve_doubao_query_params",
         lambda credentials: {"aid": "497858"},
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._prefer_dom_first_doubao_stream",
+        "opentoken.providers.camoufox_clients._prefer_dom_first_doubao_stream",
         lambda model: True,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_dom_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_dom_completion",
         lambda page, *, session, client, message, model: (
             call_order.append("dom") or iter(["思", "考"])
         ),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._stream_doubao_browser_completion",
+        "opentoken.providers.camoufox_clients._stream_doubao_browser_completion",
         lambda page, *, session, client, message, model: (
             call_order.append("browser")
             or (_ for _ in ()).throw(
@@ -4363,11 +4363,11 @@ def test_with_page_serializes_same_provider_browser_profile(monkeypatch, tmp_pat
             return FakeContext()
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.require_sync_playwright",
+        "opentoken.providers.camoufox_clients.require_sync_playwright",
         lambda: lambda: FakePlaywright(),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.prepare_browser_state_dir",
+        "opentoken.providers.camoufox_clients.prepare_browser_state_dir",
         lambda state_dir, provider: tmp_path / provider,
     )
 
@@ -4468,7 +4468,7 @@ def test_chat_doubao_prefers_fetch_completion_path_by_default(monkeypatch) -> No
     fake_session = FakeSession()
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: fake_session,
     )
 
@@ -4476,11 +4476,11 @@ def test_chat_doubao_prefers_fetch_completion_path_by_default(monkeypatch) -> No
         return "doubao-fetch-ok"
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._fetch_doubao_browser_completion",
+        "opentoken.providers.camoufox_clients._fetch_doubao_browser_completion",
         fetch_ok,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._dom_send_and_wait_doubao",
+        "opentoken.providers.camoufox_clients._dom_send_and_wait_doubao",
         lambda page, message, model: (_ for _ in ()).throw(
             AssertionError("DOM fallback should not run when fetch path succeeds")
         ),
@@ -4541,18 +4541,18 @@ def test_chat_doubao_falls_back_to_dom_when_fetch_path_fails(monkeypatch) -> Non
     fake_session = FakeSession()
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: fake_session,
     )
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._fetch_doubao_browser_completion",
+        "opentoken.providers.camoufox_clients._fetch_doubao_browser_completion",
         lambda page, *, session, message, model: (_ for _ in ()).throw(
             RuntimeError("Doubao fetch timed out")
         ),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._dom_send_and_wait_doubao",
+        "opentoken.providers.camoufox_clients._dom_send_and_wait_doubao",
         lambda page, message, model: "doubao-dom-ok",
     )
 
@@ -4609,17 +4609,17 @@ def test_chat_doubao_falls_back_to_dom_when_fetch_path_hits_rate_limit(monkeypat
     fake_session = FakeSession()
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: fake_session,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._fetch_doubao_browser_completion",
+        "opentoken.providers.camoufox_clients._fetch_doubao_browser_completion",
         lambda page, *, session, client, message, model: (_ for _ in ()).throw(
             ProviderRateLimitError("rate limited")
         ),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._dom_send_and_wait_doubao",
+        "opentoken.providers.camoufox_clients._dom_send_and_wait_doubao",
         lambda page, session, client, message, model: "doubao-dom-rate-limit-ok",
     )
 
@@ -4685,11 +4685,11 @@ def test_chat_glm_cn_falls_back_to_dom_when_fetch_path_requires_login(monkeypatc
         lambda **kwargs: kwargs["action"](FakeContext(), FakePage()),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._is_jwt_expired",
+        "opentoken.providers.camoufox_clients._is_jwt_expired",
         lambda token, buffer_seconds=60: False,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._dom_send_and_wait_glm_cn",
+        "opentoken.providers.camoufox_clients._dom_send_and_wait_glm_cn",
         lambda page, message: "glm-dom-ok",
     )
 
@@ -4814,15 +4814,15 @@ def test_chat_glm_cn_prefers_live_non_guest_browser_cookies_over_saved_guest_cre
     client = CamoufoxProviderClient("glm-cn", credentials)
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: fake_session,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._is_jwt_expired",
+        "opentoken.providers.camoufox_clients._is_jwt_expired",
         lambda token, buffer_seconds=60: False,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._dom_send_and_wait_glm_cn",
+        "opentoken.providers.camoufox_clients._dom_send_and_wait_glm_cn",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("live browser cookies should avoid DOM fallback")
         ),
@@ -4856,7 +4856,7 @@ def test_tool_chat_doubao_prefers_browser_path_over_raw_http_client(monkeypatch)
         lambda *, message, model: "doubao-browser-tool-ok",
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.DoubaoWebClient.chat_completion",
+        "opentoken.providers.camoufox_clients.DoubaoWebClient.chat_completion",
         lambda self, *, message, model: (_ for _ in ()).throw(
             AssertionError("tool calling should prefer the browser-backed path")
         ),
@@ -4913,7 +4913,7 @@ def test_tool_chat_glm_cn_prefers_browser_path_over_raw_http_client(monkeypatch)
         lambda *, message, model: "glm-browser-tool-ok",
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.GLMApiClient.chat_completion",
+        "opentoken.providers.camoufox_clients.GLMApiClient.chat_completion",
         lambda self, *, message, model: (_ for _ in ()).throw(
             AssertionError("tool calling should prefer the browser-backed path")
         ),
@@ -4987,19 +4987,19 @@ def test_browser_session_is_reused_across_threads(monkeypatch, tmp_path) -> None
             return FakeContext(label)
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.require_sync_playwright",
+        "opentoken.providers.camoufox_clients.require_sync_playwright",
         lambda: lambda: FakePlaywright(),
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.prepare_browser_state_dir",
+        "opentoken.providers.camoufox_clients.prepare_browser_state_dir",
         lambda state_dir, provider: tmp_path / provider,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._close_browser_session",
+        "opentoken.providers.camoufox_clients._close_browser_session",
         lambda provider: None,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._PROVIDER_GLOBAL_SESSIONS",
+        "opentoken.providers.camoufox_clients._PROVIDER_GLOBAL_SESSIONS",
         {},
     )
 
@@ -5064,15 +5064,15 @@ def test_get_or_create_browser_session_recovers_with_fresh_manager_when_profile_
         return FakePlaywright(f"manager-{counter['value']}")
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.require_sync_playwright",
+        "opentoken.providers.camoufox_clients.require_sync_playwright",
         lambda: factory,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients.prepare_browser_state_dir",
+        "opentoken.providers.camoufox_clients.prepare_browser_state_dir",
         lambda state_dir, provider: tmp_path / provider,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._PROVIDER_GLOBAL_SESSIONS",
+        "opentoken.providers.camoufox_clients._PROVIDER_GLOBAL_SESSIONS",
         {},
     )
 
@@ -5118,11 +5118,11 @@ def test_with_page_does_not_close_browser_session_after_success(monkeypatch, tmp
     closed: list[str] = []
 
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._get_or_create_browser_session",
+        "opentoken.providers.camoufox_clients._get_or_create_browser_session",
         lambda **kwargs: session,
     )
     monkeypatch.setattr(
-        "openclaw_algae.providers.camoufox_clients._close_browser_session",
+        "opentoken.providers.camoufox_clients._close_browser_session",
         lambda provider: closed.append(provider),
     )
 

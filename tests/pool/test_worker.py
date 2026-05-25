@@ -1,8 +1,8 @@
 """Tests for BrowserWorker lifecycle."""
 from pathlib import Path
 
-from openclaw_algae.pool.types import WorkerIdentity, WorkerState
-from openclaw_algae.pool.worker import BrowserWorker
+from opentoken.pool.types import WorkerIdentity, WorkerState
+from opentoken.pool.worker import BrowserWorker
 
 
 def test_worker_initial_state() -> None:

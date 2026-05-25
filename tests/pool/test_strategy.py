@@ -1,5 +1,5 @@
 """Tests for load balancing strategies."""
-from openclaw_algae.pool.strategy import (
+from opentoken.pool.strategy import (
     LeastBusyStrategy,
     RandomStrategy,
     RoundRobinStrategy,

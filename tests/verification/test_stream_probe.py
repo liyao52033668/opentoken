@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from openclaw_algae.verification.stream_probe import analyze_stream_lines
+from opentoken.verification.stream_probe import analyze_stream_lines
 
 
 def _clock(step: float = 0.1):

@@ -8,14 +8,14 @@ import httpx
 import pytest
 import uvicorn
 
-import openclaw_algae.api.routes.chat as chat_route_module
-import openclaw_algae.api.routes.responses as responses_route_module
-from openclaw_algae.api.app import create_app
-from openclaw_algae.gateway.normalized import NormalizedChatRequest
-from openclaw_algae.gateway.router import ProviderRouter
-from openclaw_algae.models.provider_credentials import ProviderCredentialRecord
-from openclaw_algae.providers.base import ChatResponse, ProviderAdapter
-from openclaw_algae.storage.provider_store import save_provider_credentials
+import opentoken.api.routes.chat as chat_route_module
+import opentoken.api.routes.responses as responses_route_module
+from opentoken.api.app import create_app
+from opentoken.gateway.normalized import NormalizedChatRequest
+from opentoken.gateway.router import ProviderRouter
+from opentoken.models.provider_credentials import ProviderCredentialRecord
+from opentoken.providers.base import ChatResponse, ProviderAdapter
+from opentoken.storage.provider_store import save_provider_credentials
 
 
 class StaticAdapter(ProviderAdapter):
@@ -92,7 +92,7 @@ def http_server(monkeypatch, tmp_path: Path):
         responses_router: ProviderRouter | None = None,
         api_key: str = "test-key",
     ) -> tuple[str, dict[str, str]]:
-        state_dir = tmp_path / ".openclaw-algae"
+        state_dir = tmp_path / ".opentoken"
         state_dir.mkdir(parents=True, exist_ok=True)
         (state_dir / "config.json").write_text(
             json.dumps(
@@ -154,7 +154,7 @@ def test_models_endpoint_works_over_real_http(http_server) -> None:
         item == {
             "id": "algae/deepseek/deepseek-chat",
             "object": "model",
-            "owned_by": "openclaw-algae",
+            "owned_by": "opentoken",
         }
         for item in payload["data"]
     )
@@ -800,7 +800,7 @@ def _collect_chat_stream_tool_calls(events: list[dict[str, object]]) -> list[dic
                 current["function"]["arguments"] += arguments
     return [collected[index] for index in sorted(collected)]
 
-from openclaw_algae.providers.prompts import stringify_message_content
+from opentoken.providers.prompts import stringify_message_content
 
 
 class AttachmentEchoAdapter(ProviderAdapter):

@@ -14,8 +14,8 @@ venv/
 .env
 .env.*
 !.env.example
-.openclaw-algae/
-.openclaw/
+.opentoken/
+.opentoken/
 
 # Logs / runtime files
 *.log

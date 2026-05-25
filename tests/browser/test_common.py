@@ -2,8 +2,8 @@ import sys
 import types
 
 from camoufox.addons import DefaultAddons
-from openclaw_algae.browser.common import ensure_camoufox_runtime, probe_camoufox_runtime
-import openclaw_algae.browser.common as common_module
+from opentoken.browser.common import ensure_camoufox_runtime, probe_camoufox_runtime
+import opentoken.browser.common as common_module
 
 
 def test_probe_camoufox_runtime_reports_missing_package(monkeypatch) -> None:

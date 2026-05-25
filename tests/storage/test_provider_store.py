@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from openclaw_algae.models.provider_credentials import ProviderCredentialRecord
-from openclaw_algae.storage.provider_store import (
+from opentoken.models.provider_credentials import ProviderCredentialRecord
+from opentoken.storage.provider_store import (
     list_provider_credentials,
     load_provider_credentials,
     save_provider_credentials,

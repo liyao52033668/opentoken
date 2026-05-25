@@ -192,7 +192,7 @@ def latency_str(ms: float) -> str:
 # ── Report ────────────────────────────────────────────────────────────────────
 def render_report(all_stats: list[ModelStats], total_seconds: float) -> str:
     lines = []
-    lines.append("# OpenClaw Algae — Full Provider Stress Test Report")
+    lines.append("# OpenToken — Full Provider Stress Test Report")
     lines.append(f"\n**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"**Target calls per model:** {TARGET_CALLS}")
     lines.append(f"**Total wall time:** {total_seconds/60:.1f} min\n")

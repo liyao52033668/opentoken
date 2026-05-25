@@ -1,4 +1,4 @@
-# OpenClaw Algae
+# OpenToken
 
 一个把多家网页端 / 浏览器登录态 / 少量 API 能力统一封装成 **OpenAI-compatible 本地网关** 的项目。
 
@@ -17,9 +17,9 @@
 - 每家模型名不一样
 - 每家接口格式不一样
 - 流式输出行为不一致
-- 本地工具 / OpenClaw / OpenAI-compatible 客户端接起来很麻烦
+- 本地工具 / OpenToken / OpenAI-compatible 客户端接起来很麻烦
 
-OpenClaw Algae 做的就是：
+OpenToken 做的就是：
 
 1. 统一管理 provider 凭证
 2. 暴露一个本地 OpenAI-compatible 网关
@@ -59,9 +59,9 @@ OpenClaw Algae 做的就是：
 
 项目本身不会把登录凭证写进仓库，而是写到用户目录下：
 
-- `~/.openclaw-algae/config.json`：本地网关配置（包含本地 API key / host / port）
-- `~/.openclaw-algae/providers/*.json`：各 provider 凭证
-- `~/.openclaw-algae/`：其它本地运行状态
+- `~/.opentoken/config.json`：本地网关配置（包含本地 API key / host / port）
+- `~/.opentoken/providers/*.json`：各 provider 凭证
+- `~/.opentoken/`：其它本地运行状态
 
 这意味着：
 - **仓库代码可以提交**
@@ -81,13 +81,13 @@ uv sync
 ### 2）初始化本地状态目录（可选，但推荐）
 
 ```bash
-uv run openclaw-algae onboard
+uv run opentoken onboard
 ```
 
 ### 3）启动服务
 
 ```bash
-uv run openclaw-algae start
+uv run opentoken start
 ```
 
 默认监听：
@@ -102,16 +102,16 @@ uv run openclaw-algae start
 
 ## 本地 API key 在哪看
 
-OpenClaw Algae 使用的是**本地网关自己的 API key**，不是上游 provider 的 key。
+OpenToken 使用的是**本地网关自己的 API key**，不是上游 provider 的 key。
 
 默认保存在：
 
-- `~/.openclaw-algae/config.json`
+- `~/.opentoken/config.json`
 
 你可以直接查看：
 
 ```bash
-cat ~/.openclaw-algae/config.json
+cat ~/.opentoken/config.json
 ```
 
 示例内容：
@@ -129,7 +129,7 @@ cat ~/.openclaw-algae/config.json
 ```bash
 python3 - <<'PY'
 import json, os
-path = os.path.expanduser('~/.openclaw-algae/config.json')
+path = os.path.expanduser('~/.opentoken/config.json')
 with open(path, 'r', encoding='utf-8') as f:
     print(json.load(f)['api_key'])
 PY
@@ -142,7 +142,7 @@ PY
 登录命令统一是：
 
 ```bash
-uv run openclaw-algae login <provider>
+uv run opentoken login <provider>
 ```
 
 ### 方式 A：浏览器登录（推荐）
@@ -152,18 +152,18 @@ uv run openclaw-algae login <provider>
 示例：
 
 ```bash
-uv run openclaw-algae login qwen international --browser
-uv run openclaw-algae login qwen china --browser
-uv run openclaw-algae login deepseek --browser
-uv run openclaw-algae login kimi --browser
-uv run openclaw-algae login doubao --browser
-uv run openclaw-algae login glm international --browser
-uv run openclaw-algae login glm china --browser
+uv run opentoken login qwen international --browser
+uv run opentoken login qwen china --browser
+uv run opentoken login deepseek --browser
+uv run opentoken login kimi --browser
+uv run opentoken login doubao --browser
+uv run opentoken login glm international --browser
+uv run opentoken login glm china --browser
 ```
 
 说明：
 - 会打开对应网页登录流程
-- 登录成功后，凭证会保存到 `~/.openclaw-algae/providers/*.json`
+- 登录成功后，凭证会保存到 `~/.opentoken/providers/*.json`
 
 ### 方式 B：手工凭证登录
 
@@ -172,7 +172,7 @@ uv run openclaw-algae login glm china --browser
 示例：
 
 ```bash
-uv run openclaw-algae login qwen international \
+uv run opentoken login qwen international \
   --cookie 'your_cookie_here' \
   --user-agent 'your user agent'
 ```
@@ -180,14 +180,14 @@ uv run openclaw-algae login qwen international \
 或者：
 
 ```bash
-uv run openclaw-algae login deepseek \
+uv run opentoken login deepseek \
   --header 'authorization=Bearer xxx'
 ```
 
 也可以多个 header：
 
 ```bash
-uv run openclaw-algae login some-provider \
+uv run opentoken login some-provider \
   --header 'authorization=Bearer xxx' \
   --header 'x-token=yyy'
 ```
@@ -197,19 +197,19 @@ uv run openclaw-algae login some-provider \
 适合 provider 本身支持 `--api-key` 的情况，例如 Manus。
 
 ```bash
-uv run openclaw-algae login manus --api-key YOUR_KEY
+uv run opentoken login manus --api-key YOUR_KEY
 ```
 
 ### 查看当前 provider 状态
 
 ```bash
-uv run openclaw-algae providers
+uv run opentoken providers
 ```
 
 ### 登出某个 provider
 
 ```bash
-uv run openclaw-algae logout qwen international
+uv run opentoken logout qwen international
 ```
 
 ---
@@ -231,19 +231,19 @@ curl http://127.0.0.1:32117/health
 ### 查看服务状态
 
 ```bash
-uv run openclaw-algae status
+uv run opentoken status
 ```
 
 ### 跑诊断
 
 ```bash
-uv run openclaw-algae doctor
+uv run opentoken doctor
 ```
 
 ### 跑接口契约验证
 
 ```bash
-uv run openclaw-algae verify
+uv run opentoken verify
 ```
 
 ---
@@ -340,24 +340,24 @@ curl http://127.0.0.1:32117/v1/responses \
 
 ---
 
-## 给 OpenClaw 使用
+## 给 OpenToken 使用
 
-如果你是要让 OpenClaw 直接接这个网关，可以先看将要写入的配置：
+如果你是要让 OpenToken 直接接这个网关，可以先看将要写入的配置：
 
 ```bash
-uv run openclaw-algae config --dry-run
+uv run opentoken config --dry-run
 ```
 
 确认后正式写入：
 
 ```bash
-uv run openclaw-algae config
+uv run opentoken config
 ```
 
-如果你要写到自定义 OpenClaw 配置文件：
+如果你要写到自定义 OpenToken 配置文件：
 
 ```bash
-uv run openclaw-algae config --openclaw-config /path/to/openclaw-config.json
+uv run opentoken config --opentoken-config /path/to/opentoken-config.json
 ```
 
 ---
@@ -368,8 +368,8 @@ uv run openclaw-algae config --openclaw-config /path/to/openclaw-config.json
 
 ```bash
 uv sync
-uv run openclaw-algae login qwen international --browser
-uv run openclaw-algae start
+uv run opentoken login qwen international --browser
+uv run opentoken start
 ```
 
 然后：
@@ -394,7 +394,7 @@ curl http://127.0.0.1:32117/health
 再检查 provider 是否已经登录：
 
 ```bash
-uv run openclaw-algae providers
+uv run opentoken providers
 ```
 
 如果某个 provider 没有有效凭证，它对应模型通常不会出现在模型列表里。
@@ -406,7 +406,7 @@ uv run openclaw-algae providers
 重新查看：
 
 ```bash
-cat ~/.openclaw-algae/config.json
+cat ~/.opentoken/config.json
 ```
 
 ### 3）某些 provider 流式不稳定
@@ -435,13 +435,13 @@ curl http://127.0.0.1:32117/v1/responses \
 重新登录对应 provider：
 
 ```bash
-uv run openclaw-algae login qwen international --browser
+uv run opentoken login qwen international --browser
 ```
 
 ### 5）想切换监听地址和端口
 
 ```bash
-uv run openclaw-algae start --host 0.0.0.0 --port 32117
+uv run opentoken start --host 0.0.0.0 --port 32117
 ```
 
 ---
@@ -473,8 +473,8 @@ uv run openclaw-algae start --host 0.0.0.0 --port 32117
 本项目已经在 `.gitignore` 里优先忽略：
 
 - `.venv/`
-- `.openclaw-algae/`
-- `.openclaw/`
+- `.opentoken/`
+- `.opentoken/`
 - `tmp/`
 - `*.log`
 - 本地 agent 规划/记录文件
@@ -483,7 +483,7 @@ uv run openclaw-algae start --host 0.0.0.0 --port 32117
 
 ### 不要提交这些内容
 
-- `~/.openclaw-algae/` 整个目录
+- `~/.opentoken/` 整个目录
 - 手工导出的 cookie 文件
 - header / bearer token 文本文件
 - `.env` / `.env.*`

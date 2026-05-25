@@ -3,27 +3,27 @@ import json
 import httpx
 import pytest
 
-from openclaw_algae.gateway.normalized import NormalizedChatRequest
-from openclaw_algae.models.provider_credentials import ProviderCredentialRecord
-from openclaw_algae.providers.base import ChatResponse, ProviderRateLimitError
-from openclaw_algae.providers.claude import ClaudeWebAdapter, ClaudeWebClient
-from openclaw_algae.providers.doubao import (
+from opentoken.gateway.normalized import NormalizedChatRequest
+from opentoken.models.provider_credentials import ProviderCredentialRecord
+from opentoken.providers.base import ChatResponse, ProviderRateLimitError
+from opentoken.providers.claude import ClaudeWebAdapter, ClaudeWebClient
+from opentoken.providers.doubao import (
     DoubaoWebAdapter,
     DoubaoWebClient,
     _parse_doubao_response_text,
 )
-from openclaw_algae.providers.gemini import GeminiApiClient, GeminiWebAdapter
-from openclaw_algae.providers.glm import (
+from opentoken.providers.gemini import GeminiApiClient, GeminiWebAdapter
+from opentoken.providers.glm import (
     GLMApiClient,
     GLMIntlApiClient,
     GLMWebAdapter,
     _compute_glm_intl_request_signature,
 )
-from openclaw_algae.providers.grok import GrokApiClient, GrokWebAdapter
-from openclaw_algae.providers.kimi import KimiWebClient
-from openclaw_algae.providers.manus import ManusApiAdapter, ManusApiClient
-from openclaw_algae.providers.mimo import MimoWebAdapter, MimoWebClient
-from openclaw_algae.providers.qwen import (
+from opentoken.providers.grok import GrokApiClient, GrokWebAdapter
+from opentoken.providers.kimi import KimiWebClient
+from opentoken.providers.manus import ManusApiAdapter, ManusApiClient
+from opentoken.providers.mimo import MimoWebAdapter, MimoWebClient
+from opentoken.providers.qwen import (
     QwenCnApiClient,
     QwenApiClient,
     QwenWebAdapter,
@@ -64,7 +64,7 @@ def test_kimi_web_client_uses_trust_env_false_by_default() -> None:
 
 
 def test_chatgpt_api_client_uses_trust_env_false_by_default(tmp_path) -> None:
-    from openclaw_algae.providers.chatgpt import ChatGPTApiClient
+    from opentoken.providers.chatgpt import ChatGPTApiClient
 
     credentials = ProviderCredentialRecord(
         provider="chatgpt",
@@ -281,7 +281,7 @@ def test_kimi_web_client_retries_once_when_first_response_is_empty() -> None:
 
 
 def test_chatgpt_adapter_reuses_client_instance_between_calls() -> None:
-    from openclaw_algae.providers.chatgpt import ChatGPTWebAdapter
+    from opentoken.providers.chatgpt import ChatGPTWebAdapter
 
     credentials = ProviderCredentialRecord(
         provider="chatgpt",
@@ -317,7 +317,7 @@ def test_chatgpt_adapter_reuses_client_instance_between_calls() -> None:
 
 
 def test_chatgpt_adapter_streams_using_client_when_available() -> None:
-    from openclaw_algae.providers.chatgpt import ChatGPTWebAdapter
+    from opentoken.providers.chatgpt import ChatGPTWebAdapter
 
     credentials = ProviderCredentialRecord(
         provider="chatgpt",
@@ -1060,7 +1060,7 @@ def test_qwen_adapter_builds_tool_prompt_and_tool_result_history() -> None:
 
 
 def test_chatgpt_adapter_maps_tool_json_response_to_openai_tool_calls() -> None:
-    from openclaw_algae.providers.chatgpt import ChatGPTWebAdapter
+    from opentoken.providers.chatgpt import ChatGPTWebAdapter
 
     credentials = ProviderCredentialRecord(
         provider="chatgpt",
@@ -1180,7 +1180,7 @@ def test_qwen_adapter_maps_xml_tool_call_response_to_openai_tool_calls() -> None
 
 
 def test_qwen_stream_parser_preserves_think_phase_text_with_tags() -> None:
-    from openclaw_algae.providers.qwen import _parse_qwen_sse_text
+    from opentoken.providers.qwen import _parse_qwen_sse_text
 
     payload = (
         'data: {"choices":[{"delta":{"content":"这是思考","phase":"think","status":"typing"}}]}\n\n'
@@ -1192,7 +1192,7 @@ def test_qwen_stream_parser_preserves_think_phase_text_with_tags() -> None:
 
 
 def test_qwen_incremental_stream_parser_preserves_think_phase_text_with_tags() -> None:
-    from openclaw_algae.providers.qwen import _iter_qwen_sse_text_chunks
+    from opentoken.providers.qwen import _iter_qwen_sse_text_chunks
 
     lines = iter(
         [
@@ -1582,8 +1582,8 @@ def test_claude_adapter_maps_tool_json_response_to_openai_tool_calls() -> None:
 
 
 def test_chatgpt_web_client_persists_conversation_id_in_session_store(tmp_path) -> None:
-    from openclaw_algae.providers.chatgpt import ChatGPTApiClient
-    from openclaw_algae.storage.provider_sessions import load_provider_session
+    from opentoken.providers.chatgpt import ChatGPTApiClient
+    from opentoken.storage.provider_sessions import load_provider_session
 
     credentials = ProviderCredentialRecord(
         provider="chatgpt",
@@ -1615,8 +1615,8 @@ def test_chatgpt_web_client_persists_conversation_id_in_session_store(tmp_path) 
 
 
 def test_chatgpt_web_client_streams_incremental_text_and_persists_conversation_id(tmp_path) -> None:
-    from openclaw_algae.providers.chatgpt import ChatGPTApiClient
-    from openclaw_algae.storage.provider_sessions import load_provider_session
+    from opentoken.providers.chatgpt import ChatGPTApiClient
+    from opentoken.storage.provider_sessions import load_provider_session
 
     credentials = ProviderCredentialRecord(
         provider="chatgpt",
@@ -1694,7 +1694,7 @@ def test_kimi_web_client_streams_incremental_text() -> None:
 
 
 def test_kimi_adapter_streams_using_client_when_available() -> None:
-    from openclaw_algae.providers.kimi import KimiWebAdapter
+    from opentoken.providers.kimi import KimiWebAdapter
 
     credentials = ProviderCredentialRecord(
         provider="kimi",
@@ -1727,8 +1727,8 @@ def test_kimi_adapter_streams_using_client_when_available() -> None:
 
 
 def test_qwen_web_client_starts_fresh_chat_even_when_persisted_chat_id_exists(tmp_path) -> None:
-    from openclaw_algae.providers.qwen import QwenApiClient
-    from openclaw_algae.storage.provider_sessions import save_provider_session
+    from opentoken.providers.qwen import QwenApiClient
+    from opentoken.storage.provider_sessions import save_provider_session
 
     credentials = ProviderCredentialRecord(
         provider="qwen-intl",

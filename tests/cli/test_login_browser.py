@@ -1,10 +1,10 @@
 from typer.testing import CliRunner
 
-import openclaw_algae.cli.app as cli_app_module
-from openclaw_algae.browser import glm as glm_browser_module
-from openclaw_algae.browser import glm_intl as glm_intl_browser_module
-from openclaw_algae.cli.app import app
-from openclaw_algae.storage.provider_store import load_provider_credentials
+import opentoken.cli.app as cli_app_module
+from opentoken.browser import glm as glm_browser_module
+from opentoken.browser import glm_intl as glm_intl_browser_module
+from opentoken.cli.app import app
+from opentoken.storage.provider_store import load_provider_credentials
 
 
 def test_login_defaults_to_browser_mode_when_no_manual_credentials_are_passed(
@@ -14,7 +14,7 @@ def test_login_defaults_to_browser_mode_when_no_manual_credentials_are_passed(
 
     def fake_capture(provider: str, *, state_dir):
         assert provider == "deepseek"
-        assert state_dir == tmp_path / ".openclaw-algae"
+        assert state_dir == tmp_path / ".opentoken"
         return {
             "cookie": "session=value",
             "bearer": "browser-token",
@@ -27,7 +27,7 @@ def test_login_defaults_to_browser_mode_when_no_manual_credentials_are_passed(
     result = runner.invoke(app, ["login", "deepseek"])
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "deepseek")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "deepseek")
     assert loaded is not None
     assert loaded.headers["authorization"] == "Bearer browser-token"
 
@@ -37,7 +37,7 @@ def test_login_deepseek_browser_saves_captured_credentials(monkeypatch, tmp_path
 
     def fake_capture(provider: str, *, state_dir):
         assert provider == "deepseek"
-        assert state_dir == tmp_path / ".openclaw-algae"
+        assert state_dir == tmp_path / ".opentoken"
         return {
             "cookie": "session=value",
             "bearer": "browser-token",
@@ -50,7 +50,7 @@ def test_login_deepseek_browser_saves_captured_credentials(monkeypatch, tmp_path
     result = runner.invoke(app, ["login", "deepseek", "--browser"])
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "deepseek")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "deepseek")
     assert loaded is not None
     assert loaded.cookie == "session=value"
     assert loaded.user_agent == "browser-ua"
@@ -62,7 +62,7 @@ def test_login_qwen_intl_browser_saves_captured_credentials(monkeypatch, tmp_pat
 
     def fake_capture(provider: str, *, state_dir):
         assert provider == "qwen-intl"
-        assert state_dir == tmp_path / ".openclaw-algae"
+        assert state_dir == tmp_path / ".opentoken"
         return {
             "cookie": "session=value",
             "session_token": "session-token",
@@ -75,7 +75,7 @@ def test_login_qwen_intl_browser_saves_captured_credentials(monkeypatch, tmp_pat
     result = runner.invoke(app, ["login", "qwen international", "--browser"])
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "qwen-intl")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "qwen-intl")
     assert loaded is not None
     assert loaded.cookie == "session=value"
     assert loaded.user_agent == "browser-ua"
@@ -87,7 +87,7 @@ def test_login_qwen_cn_browser_saves_metadata(monkeypatch, tmp_path) -> None:
 
     def fake_capture(provider: str, *, state_dir):
         assert provider == "qwen-cn"
-        assert state_dir == tmp_path / ".openclaw-algae"
+        assert state_dir == tmp_path / ".opentoken"
         return {
             "cookie": "session=value",
             "user_agent": "browser-ua",
@@ -100,7 +100,7 @@ def test_login_qwen_cn_browser_saves_metadata(monkeypatch, tmp_path) -> None:
     result = runner.invoke(app, ["login", "qwen china", "--browser"])
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "qwen-cn")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "qwen-cn")
     assert loaded is not None
     assert loaded.metadata["xsrf_token"] == "xsrf"
     assert loaded.metadata["ut"] == "user-1"
@@ -111,7 +111,7 @@ def test_login_kimi_browser_saves_cookie_only(monkeypatch, tmp_path) -> None:
 
     def fake_capture(provider: str, *, state_dir):
         assert provider == "kimi"
-        assert state_dir == tmp_path / ".openclaw-algae"
+        assert state_dir == tmp_path / ".opentoken"
         return {
             "cookie": "kimi-auth=token-1",
             "user_agent": "browser-ua",
@@ -123,7 +123,7 @@ def test_login_kimi_browser_saves_cookie_only(monkeypatch, tmp_path) -> None:
     result = runner.invoke(app, ["login", "kimi", "--browser"])
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "kimi")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "kimi")
     assert loaded is not None
     assert loaded.cookie == "kimi-auth=token-1"
     assert loaded.user_agent == "browser-ua"
@@ -134,7 +134,7 @@ def test_login_chatgpt_browser_saves_access_token_metadata(monkeypatch, tmp_path
 
     def fake_capture(provider: str, *, state_dir):
         assert provider == "chatgpt"
-        assert state_dir == tmp_path / ".openclaw-algae"
+        assert state_dir == tmp_path / ".opentoken"
         return {
             "cookie": "__Secure-next-auth.session-token=token",
             "access_token": "token",
@@ -147,7 +147,7 @@ def test_login_chatgpt_browser_saves_access_token_metadata(monkeypatch, tmp_path
     result = runner.invoke(app, ["login", "chatgpt", "--browser"])
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "chatgpt")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "chatgpt")
     assert loaded is not None
     assert loaded.metadata["access_token"] == "token"
 
@@ -157,7 +157,7 @@ def test_login_claude_browser_saves_session_key_metadata(monkeypatch, tmp_path) 
 
     def fake_capture(provider: str, *, state_dir):
         assert provider == "claude"
-        assert state_dir == tmp_path / ".openclaw-algae"
+        assert state_dir == tmp_path / ".opentoken"
         return {
             "cookie": "sessionKey=sk-ant-sid01-test",
             "user_agent": "browser-ua",
@@ -170,7 +170,7 @@ def test_login_claude_browser_saves_session_key_metadata(monkeypatch, tmp_path) 
     result = runner.invoke(app, ["login", "claude", "--browser"])
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "claude")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "claude")
     assert loaded is not None
     assert loaded.metadata["session_key"] == "sk-ant-sid01-test"
 
@@ -180,7 +180,7 @@ def test_login_doubao_browser_saves_sessionid_metadata(monkeypatch, tmp_path) ->
 
     def fake_capture(provider: str, *, state_dir):
         assert provider == "doubao"
-        assert state_dir == tmp_path / ".openclaw-algae"
+        assert state_dir == tmp_path / ".opentoken"
         return {
             "cookie": "sessionid=session-1; ttwid=ttwid-1",
             "user_agent": "browser-ua",
@@ -193,7 +193,7 @@ def test_login_doubao_browser_saves_sessionid_metadata(monkeypatch, tmp_path) ->
     result = runner.invoke(app, ["login", "doubao", "--browser"])
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "doubao")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "doubao")
     assert loaded is not None
     assert loaded.metadata["sessionid"] == "session-1"
     assert loaded.metadata["ttwid"] == "ttwid-1"
@@ -204,7 +204,7 @@ def test_login_gemini_browser_saves_cookie_only(monkeypatch, tmp_path) -> None:
 
     def fake_capture(provider: str, *, state_dir):
         assert provider == "gemini"
-        assert state_dir == tmp_path / ".openclaw-algae"
+        assert state_dir == tmp_path / ".opentoken"
         return {
             "cookie": "SID=sid; __Secure-1PSID=psid",
             "user_agent": "browser-ua",
@@ -216,7 +216,7 @@ def test_login_gemini_browser_saves_cookie_only(monkeypatch, tmp_path) -> None:
     result = runner.invoke(app, ["login", "gemini", "--browser"])
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "gemini")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "gemini")
     assert loaded is not None
     assert loaded.cookie == "SID=sid; __Secure-1PSID=psid"
     assert loaded.user_agent == "browser-ua"
@@ -227,7 +227,7 @@ def test_login_grok_browser_saves_cookie_only(monkeypatch, tmp_path) -> None:
 
     def fake_capture(provider: str, *, state_dir):
         assert provider == "grok"
-        assert state_dir == tmp_path / ".openclaw-algae"
+        assert state_dir == tmp_path / ".opentoken"
         return {
             "cookie": "sso=sso-token; _ga=ga-cookie",
             "user_agent": "browser-ua",
@@ -239,7 +239,7 @@ def test_login_grok_browser_saves_cookie_only(monkeypatch, tmp_path) -> None:
     result = runner.invoke(app, ["login", "grok", "--browser"])
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "grok")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "grok")
     assert loaded is not None
     assert loaded.cookie == "sso=sso-token; _ga=ga-cookie"
 
@@ -319,7 +319,7 @@ def test_login_glm_cn_browser_saves_captured_credentials(monkeypatch, tmp_path) 
 
     def fake_capture(provider: str, *, state_dir):
         assert provider == "glm-cn"
-        assert state_dir == tmp_path / ".openclaw-algae"
+        assert state_dir == tmp_path / ".opentoken"
         return {
             "cookie": "chatglm_refresh_token=refresh",
             "user_agent": "browser-ua",
@@ -331,7 +331,7 @@ def test_login_glm_cn_browser_saves_captured_credentials(monkeypatch, tmp_path) 
     result = runner.invoke(app, ["login", "glm cn", "--browser"])
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "glm-cn")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "glm-cn")
     assert loaded is not None
     assert loaded.cookie == "chatglm_refresh_token=refresh"
 
@@ -341,7 +341,7 @@ def test_login_glm_intl_browser_saves_cookie_only(monkeypatch, tmp_path) -> None
 
     def fake_capture(provider: str, *, state_dir):
         assert provider == "glm-intl"
-        assert state_dir == tmp_path / ".openclaw-algae"
+        assert state_dir == tmp_path / ".opentoken"
         return {
             "cookie": "refresh_token=refresh",
             "user_agent": "browser-ua",
@@ -353,7 +353,7 @@ def test_login_glm_intl_browser_saves_cookie_only(monkeypatch, tmp_path) -> None
     result = runner.invoke(app, ["login", "glm international", "--browser"])
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "glm-intl")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "glm-intl")
     assert loaded is not None
     assert loaded.cookie == "refresh_token=refresh"
 
@@ -449,7 +449,7 @@ def test_login_mimo_browser_saves_cookie_only(monkeypatch, tmp_path) -> None:
 
     def fake_capture(provider: str, *, state_dir):
         assert provider == "mimo"
-        assert state_dir == tmp_path / ".openclaw-algae"
+        assert state_dir == tmp_path / ".opentoken"
         return {
             "cookie": "mimo-token=token-1; mimo-user=user-1",
             "user_agent": "browser-ua",
@@ -461,7 +461,7 @@ def test_login_mimo_browser_saves_cookie_only(monkeypatch, tmp_path) -> None:
     result = runner.invoke(app, ["login", "xiaomi mimo", "--browser"])
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "mimo")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "mimo")
     assert loaded is not None
     assert loaded.cookie == "mimo-token=token-1; mimo-user=user-1"
 

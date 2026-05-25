@@ -1,7 +1,7 @@
 from typer.testing import CliRunner
 
-import openclaw_algae.cli.app as cli_app_module
-from openclaw_algae.cli.app import app
+import opentoken.cli.app as cli_app_module
+from opentoken.cli.app import app
 
 
 def test_start_invokes_uvicorn_with_configured_bind(monkeypatch, tmp_path) -> None:
@@ -20,8 +20,8 @@ def test_start_invokes_uvicorn_with_configured_bind(monkeypatch, tmp_path) -> No
     result = runner.invoke(app, ["start"])
 
     assert result.exit_code == 0
-    assert captured["app_ref"] == "openclaw_algae.api.app:create_app"
+    assert captured["app_ref"] == "opentoken.api.app:create_app"
     assert captured["factory"] is True
     assert captured["host"] == "127.0.0.1"
     assert captured["port"] == 32117
-    assert (tmp_path / ".openclaw-algae" / "config.json").exists()
+    assert (tmp_path / ".opentoken" / "config.json").exists()

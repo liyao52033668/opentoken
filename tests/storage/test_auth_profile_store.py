@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from openclaw_algae.models.provider_credentials import ProviderCredentialRecord
-from openclaw_algae.storage.provider_store import (
+from opentoken.models.provider_credentials import ProviderCredentialRecord
+from opentoken.storage.provider_store import (
     list_provider_credentials,
     load_provider_credentials,
     save_provider_credentials,
@@ -76,10 +76,10 @@ def test_load_provider_credentials_reads_from_auth_profiles_store_without_legacy
     assert loaded.metadata["session_key"] == "abc"
 
 
-def test_save_provider_credentials_mirrors_shared_openclaw_auth_profiles_for_default_layout(
+def test_save_provider_credentials_mirrors_shared_opentoken_auth_profiles_for_default_layout(
     tmp_path: Path,
 ) -> None:
-    providers_dir = tmp_path / ".openclaw-algae" / "providers"
+    providers_dir = tmp_path / ".opentoken" / "providers"
     record = ProviderCredentialRecord(
         provider="chatgpt",
         kind="browser_session",
@@ -93,15 +93,15 @@ def test_save_provider_credentials_mirrors_shared_openclaw_auth_profiles_for_def
     save_provider_credentials(providers_dir, record)
 
     shared_store = json.loads(
-        (tmp_path / ".openclaw" / "auth-profiles.json").read_text(encoding="utf-8")
+        (tmp_path / ".opentoken" / "auth-profiles.json").read_text(encoding="utf-8")
     )
     assert shared_store["profiles"]["chatgpt:default"]["provider"] == "chatgpt"
 
 
-def test_load_provider_credentials_reads_from_shared_openclaw_auth_profiles_store(
+def test_load_provider_credentials_reads_from_shared_opentoken_auth_profiles_store(
     tmp_path: Path,
 ) -> None:
-    providers_dir = tmp_path / ".openclaw-algae" / "providers"
+    providers_dir = tmp_path / ".opentoken" / "providers"
     providers_dir.mkdir(parents=True)
     record = ProviderCredentialRecord(
         provider="gemini",
@@ -112,7 +112,7 @@ def test_load_provider_credentials_reads_from_shared_openclaw_auth_profiles_stor
         metadata={"sid": "value"},
         status="valid",
     )
-    shared_path = tmp_path / ".openclaw" / "auth-profiles.json"
+    shared_path = tmp_path / ".opentoken" / "auth-profiles.json"
     shared_path.parent.mkdir(parents=True, exist_ok=True)
     shared_path.write_text(
         json.dumps(

@@ -1,5 +1,5 @@
 """Tests for error classification."""
-from openclaw_algae.failover.errors import (
+from opentoken.failover.errors import (
     ErrorClassification,
     NonRetryableError,
     RetryableError,

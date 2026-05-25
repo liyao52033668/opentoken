@@ -18,7 +18,7 @@ import httpx
 # ── Config ────────────────────────────────────────────────────────────────────
 
 BASE_URL = "http://127.0.0.1:32117"
-CONFIG_PATH = Path.home() / ".openclaw-algae" / "config.json"
+CONFIG_PATH = Path.home() / ".opentoken" / "config.json"
 API_KEY = json.loads(CONFIG_PATH.read_text())["api_key"]
 HEADERS = {
     "Content-Type": "application/json",
@@ -508,7 +508,7 @@ def run_all_tests() -> None:
 
 def generate_report() -> str:
     lines = []
-    lines.append(f"# OpenClaw Algae — E2E Test Report")
+    lines.append(f"# OpenToken — E2E Test Report")
     lines.append(f"\n**Date:** {report.started} → {report.finished}")
     lines.append(f"**Base URL:** {BASE_URL}")
     lines.append(f"**Total Tests:** {len(report.tests)}")
@@ -645,7 +645,7 @@ if __name__ == "__main__":
             sys.exit(1)
     except Exception as exc:
         print(f"Cannot reach server at {BASE_URL}: {exc}")
-        print("Start it first: uv run openclaw-algae start")
+        print("Start it first: uv run opentoken start")
         sys.exit(1)
 
     print("Running E2E test suite...")

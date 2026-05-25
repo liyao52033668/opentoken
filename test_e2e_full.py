@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive E2E test suite for openclaw-algae.
+Comprehensive E2E test suite for opentoken.
 Tests ALL providers, ALL endpoints, and tool calling.
 """
 from __future__ import annotations
@@ -18,13 +18,13 @@ import httpx
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from openclaw_algae.api.app import create_app
-from openclaw_algae.config.paths import resolve_state_dir
-from openclaw_algae.gateway.normalized import NormalizedChatRequest
-from openclaw_algae.gateway.router import PoolAwareRouter, get_default_router
-from openclaw_algae.models.provider_credentials import ProviderCredentialRecord
-from openclaw_algae.providers.base import ChatResponse, ProviderAdapter
-from openclaw_algae.storage.provider_store import save_provider_credentials
+from opentoken.api.app import create_app
+from opentoken.config.paths import resolve_state_dir
+from opentoken.gateway.normalized import NormalizedChatRequest
+from opentoken.gateway.router import PoolAwareRouter, get_default_router
+from opentoken.models.provider_credentials import ProviderCredentialRecord
+from opentoken.providers.base import ChatResponse, ProviderAdapter
+from opentoken.storage.provider_store import save_provider_credentials
 
 # ── Test Results ──────────────────────────────────────────────────────────────
 
@@ -107,55 +107,55 @@ def start_server(router=None, api_key="test-e2e-key"):
 ALL_PROVIDERS = {
     "deepseek": {
         "models": ["algae/deepseek/deepseek-chat"],
-        "login_hint": "openclaw-algae login deepseek",
+        "login_hint": "opentoken login deepseek",
     },
     "claude": {
         "models": ["algae/claude/claude-sonnet-4-6"],
-        "login_hint": "openclaw-algae login claude",
+        "login_hint": "opentoken login claude",
     },
     "qwen-intl": {
         "models": ["algae/qwen-intl/qwen3.5-plus"],
-        "login_hint": "openclaw-algae login qwen international",
+        "login_hint": "opentoken login qwen international",
     },
     "qwen-cn": {
         "models": ["algae/qwen-cn/Qwen3.5-Plus"],
-        "login_hint": "openclaw-algae login qwen china",
+        "login_hint": "opentoken login qwen china",
     },
     "kimi": {
         "models": ["algae/kimi/moonshot-v1-32k"],
-        "login_hint": "openclaw-algae login kimi",
+        "login_hint": "opentoken login kimi",
     },
     "doubao": {
         "models": ["algae/doubao/doubao-seed-2.0"],
-        "login_hint": "openclaw-algae login doubao",
+        "login_hint": "opentoken login doubao",
     },
     "chatgpt": {
         "models": ["algae/chatgpt/gpt-4"],
-        "login_hint": "openclaw-algae login chatgpt",
+        "login_hint": "opentoken login chatgpt",
     },
     "gemini": {
         "models": ["algae/gemini/gemini-pro"],
-        "login_hint": "openclaw-algae login gemini",
+        "login_hint": "opentoken login gemini",
     },
     "grok": {
         "models": ["algae/grok/grok-2"],
-        "login_hint": "openclaw-algae login grok",
+        "login_hint": "opentoken login grok",
     },
     "glm-cn": {
         "models": ["algae/glm-cn/glm-4-plus"],
-        "login_hint": "openclaw-algae login glm cn",
+        "login_hint": "opentoken login glm cn",
     },
     "glm-intl": {
         "models": ["algae/glm-intl/glm-4-plus"],
-        "login_hint": "openclaw-algae login glm international",
+        "login_hint": "opentoken login glm international",
     },
     "mimo": {
         "models": ["algae/mimo/mimo-v2-pro"],
-        "login_hint": "openclaw-algae login xiaomi mimo",
+        "login_hint": "opentoken login xiaomi mimo",
     },
     "manus": {
         "models": ["algae/manus/manus-1.6"],
-        "login_hint": "openclaw-algae login manus --api-key KEY",
+        "login_hint": "opentoken login manus --api-key KEY",
     },
 }
 
@@ -166,7 +166,7 @@ def test_all_provider_endpoints(base_url: str, headers: dict, tmp_path: Path) ->
     """Test every provider's adapter is registered and routeable."""
     print("\n=== Test: All Provider Endpoints ===")
 
-    from openclaw_algae.providers.registry import supported_provider_keys
+    from opentoken.providers.registry import supported_provider_keys
 
     for provider_key in supported_provider_keys():
         provider_info = ALL_PROVIDERS.get(provider_key, {})
@@ -222,7 +222,7 @@ def test_all_provider_endpoints(base_url: str, headers: dict, tmp_path: Path) ->
 
         # Test: provider can be routed (will fail on actual HTTP call but routing works)
         try:
-            from openclaw_algae.gateway.normalized import NormalizedChatRequest
+            from opentoken.gateway.normalized import NormalizedChatRequest
             req = NormalizedChatRequest(
                 model=model,
                 messages=[{"role": "user", "content": "hello"}],
@@ -258,7 +258,7 @@ def test_tool_calling(base_url: str, headers: dict, tmp_path: Path) -> None:
 
     # Test 1: NormalizedChatRequest accepts tools field
     try:
-        from openclaw_algae.gateway.normalized import NormalizedChatRequest
+        from opentoken.gateway.normalized import NormalizedChatRequest
         req = NormalizedChatRequest(
             model="algae/deepseek/deepseek-chat",
             messages=[
@@ -290,7 +290,7 @@ def test_tool_calling(base_url: str, headers: dict, tmp_path: Path) -> None:
 
     # Test 2: build_role_prompt handles tool messages
     try:
-        from openclaw_algae.providers.prompts import build_role_prompt, stringify_message_content
+        from opentoken.providers.prompts import build_role_prompt, stringify_message_content
         req = NormalizedChatRequest(
             model="algae/deepseek/deepseek-chat",
             messages=[
@@ -375,7 +375,7 @@ def test_streaming_all_providers(base_url: str, headers: dict, tmp_path: Path) -
     """Test streaming endpoint for each provider."""
     print("\n=== Test: Streaming Endpoints ===")
 
-    from openclaw_algae.providers.registry import supported_provider_keys
+    from opentoken.providers.registry import supported_provider_keys
 
     for provider_key in supported_provider_keys():
         provider_info = ALL_PROVIDERS.get(provider_key, {})
@@ -425,7 +425,7 @@ def test_error_handling_all_providers(base_url: str, headers: dict, tmp_path: Pa
     """Test error responses for each provider via HTTP."""
     print("\n=== Test: Error Handling (all providers) ===")
 
-    from openclaw_algae.providers.registry import supported_provider_keys
+    from opentoken.providers.registry import supported_provider_keys
 
     with httpx.Client(base_url=base_url, timeout=10.0) as client:
         for provider_key in supported_provider_keys():
@@ -466,7 +466,7 @@ def test_responses_api(base_url: str, headers: dict, tmp_path: Path) -> None:
     """Test the /v1/responses endpoint."""
     print("\n=== Test: Responses API ===")
 
-    from openclaw_algae.providers.registry import supported_provider_keys
+    from opentoken.providers.registry import supported_provider_keys
 
     with httpx.Client(base_url=base_url, timeout=10.0) as client:
         for provider_key in supported_provider_keys():
@@ -504,8 +504,8 @@ def test_responses_api(base_url: str, headers: dict, tmp_path: Path) -> None:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    from openclaw_algae.config.paths import resolve_state_dir
-    from openclaw_algae.storage.bootstrap import initialize_state_dir
+    from opentoken.config.paths import resolve_state_dir
+    from opentoken.storage.bootstrap import initialize_state_dir
 
     # Initialize state
     state_dir = resolve_state_dir()
@@ -516,7 +516,7 @@ def main():
     tmp_path.mkdir(exist_ok=True)
 
     print("=" * 60)
-    print("  OpenClaw Algae — Comprehensive E2E Test Suite")
+    print("  OpenToken — Comprehensive E2E Test Suite")
     print(f"  Providers: {len(ALL_PROVIDERS)}")
     print("=" * 60)
 

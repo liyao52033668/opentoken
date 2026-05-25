@@ -1,4 +1,4 @@
-from openclaw_algae.providers.prompts import stringify_message_content
+from opentoken.providers.prompts import stringify_message_content
 
 
 def test_stringify_message_content_keeps_attachment_markers() -> None:

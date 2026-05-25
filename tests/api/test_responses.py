@@ -3,11 +3,11 @@ import httpx
 import json
 import time
 
-from openclaw_algae.providers.base import ChatResponse
-from openclaw_algae.providers.base import ProviderRateLimitError
-from openclaw_algae.api.app import create_app
-import openclaw_algae.api.routes.responses as responses_route_module
-import openclaw_algae.storage.response_store as response_store_module
+from opentoken.providers.base import ChatResponse
+from opentoken.providers.base import ProviderRateLimitError
+from opentoken.api.app import create_app
+import opentoken.api.routes.responses as responses_route_module
+import opentoken.storage.response_store as response_store_module
 
 
 class FakeRouter:

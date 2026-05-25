@@ -10,7 +10,7 @@ import httpx
 
 def load_api_key() -> str:
     """Load API key from config."""
-    config_path = Path.home() / ".openclaw-algae" / "config.json"
+    config_path = Path.home() / ".opentoken" / "config.json"
     if not config_path.exists():
         print(f"❌ Config not found: {config_path}")
         sys.exit(1)

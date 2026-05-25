@@ -1,13 +1,13 @@
 from typer.testing import CliRunner
 
-from openclaw_algae.cli.app import app
-from openclaw_algae.models.provider_credentials import ProviderCredentialRecord
-from openclaw_algae.storage.provider_store import save_provider_credentials
+from opentoken.cli.app import app
+from opentoken.models.provider_credentials import ProviderCredentialRecord
+from opentoken.storage.provider_store import save_provider_credentials
 
 
 def test_providers_command_lists_saved_providers(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
-    state_dir = tmp_path / ".openclaw-algae" / "providers"
+    state_dir = tmp_path / ".opentoken" / "providers"
     save_provider_credentials(
         state_dir,
         ProviderCredentialRecord(
@@ -52,7 +52,7 @@ def test_login_normalizes_provider_alias_and_saves_canonical_provider(monkeypatc
 
     assert result.exit_code == 0
     assert "Saved credentials for qwen-cn" in result.stdout
-    assert (tmp_path / ".openclaw-algae" / "providers" / "qwen-cn.json").exists()
+    assert (tmp_path / ".opentoken" / "providers" / "qwen-cn.json").exists()
 
 
 def test_login_rejects_unknown_provider(monkeypatch, tmp_path) -> None:
@@ -70,7 +70,7 @@ def test_login_rejects_unknown_provider(monkeypatch, tmp_path) -> None:
 
 def test_logout_removes_saved_provider(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
-    providers_dir = tmp_path / ".openclaw-algae" / "providers"
+    providers_dir = tmp_path / ".opentoken" / "providers"
     save_provider_credentials(
         providers_dir,
         ProviderCredentialRecord(
@@ -92,7 +92,7 @@ def test_logout_removes_saved_provider(monkeypatch, tmp_path) -> None:
 
 def test_logout_accepts_multi_token_provider_alias(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
-    providers_dir = tmp_path / ".openclaw-algae" / "providers"
+    providers_dir = tmp_path / ".opentoken" / "providers"
     save_provider_credentials(
         providers_dir,
         ProviderCredentialRecord(

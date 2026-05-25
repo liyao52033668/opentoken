@@ -1,7 +1,7 @@
 from typer.testing import CliRunner
 
-from openclaw_algae.cli.app import app
-from openclaw_algae.storage.provider_store import load_provider_credentials
+from opentoken.cli.app import app
+from opentoken.storage.provider_store import load_provider_credentials
 
 
 def test_login_manual_saves_provider_credentials(monkeypatch, tmp_path) -> None:
@@ -23,7 +23,7 @@ def test_login_manual_saves_provider_credentials(monkeypatch, tmp_path) -> None:
     )
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "deepseek")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "deepseek")
     assert loaded is not None
     assert loaded.cookie == "session=value"
     assert loaded.headers["authorization"] == "Bearer token"
@@ -55,7 +55,7 @@ def test_login_manus_api_key_saves_provider_credentials(monkeypatch, tmp_path) -
 
     assert result.exit_code == 0
     assert "Saved API key credentials for manus" in result.stdout
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "manus")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "manus")
     assert loaded is not None
     assert loaded.kind == "api_key"
     assert loaded.headers["api_key"] == "manus-key"
@@ -131,7 +131,7 @@ def test_login_accepts_multi_token_provider_alias(monkeypatch, tmp_path) -> None
     )
 
     assert result.exit_code == 0
-    loaded = load_provider_credentials(tmp_path / ".openclaw-algae" / "providers", "qwen-cn")
+    loaded = load_provider_credentials(tmp_path / ".opentoken" / "providers", "qwen-cn")
     assert loaded is not None
     assert loaded.provider == "qwen-cn"
     assert loaded.cookie == "session=value"

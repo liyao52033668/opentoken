@@ -1,8 +1,8 @@
 from typer.testing import CliRunner
 
-from openclaw_algae.cli.app import app
-from openclaw_algae.browser.common import CamoufoxRuntimeStatus
-import openclaw_algae.cli.status_view as status_view_module
+from opentoken.cli.app import app
+from opentoken.browser.common import CamoufoxRuntimeStatus
+import opentoken.cli.status_view as status_view_module
 
 
 def test_doctor_reports_environment_paths(monkeypatch, tmp_path) -> None:
@@ -12,11 +12,11 @@ def test_doctor_reports_environment_paths(monkeypatch, tmp_path) -> None:
     result = runner.invoke(app, ["doctor"])
 
     assert result.exit_code == 0
-    assert f"state_dir={tmp_path / '.openclaw-algae'}" in result.stdout
+    assert f"state_dir={tmp_path / '.opentoken'}" in result.stdout
     assert "state_dir_exists=no" in result.stdout
     assert "app_config_exists=no" in result.stdout
-    assert f"openclaw_config={tmp_path / '.openclaw' / 'openclaw.json'}" in result.stdout
-    assert "openclaw_config_exists=no" in result.stdout
+    assert f"opentoken_config={tmp_path / '.opentoken' / 'opentoken.json'}" in result.stdout
+    assert "opentoken_config_exists=no" in result.stdout
     assert "providers=0" in result.stdout
 
 

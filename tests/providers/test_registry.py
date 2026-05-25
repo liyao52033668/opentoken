@@ -1,4 +1,4 @@
-from openclaw_algae.providers.registry import supported_provider_keys
+from opentoken.providers.registry import supported_provider_keys
 
 
 def test_supported_provider_keys_match_requested_catalog() -> None:

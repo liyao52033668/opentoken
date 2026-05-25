@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from openclaw_algae.api.app import create_app
-from openclaw_algae.models.catalog import default_catalog
+from opentoken.api.app import create_app
+from opentoken.models.catalog import default_catalog
 
 
 def test_models_endpoint_returns_openai_style_list() -> None:
@@ -18,7 +18,7 @@ def test_models_endpoint_returns_openai_style_list() -> None:
     for item in payload["data"]:
         assert set(item.keys()) == {"id", "object", "owned_by"}
         assert item["object"] == "model"
-        assert item["owned_by"] == "openclaw-algae"
+        assert item["owned_by"] == "opentoken"
 
 
 def test_models_endpoint_lists_current_supported_provider_defaults() -> None:

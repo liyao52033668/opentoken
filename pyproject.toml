@@ -1,7 +1,7 @@
 [project]
-name = 'openclaw-algae'
+name = 'opentoken'
 version = '0.1.0'
-description = 'Zero-token OpenAI-compatible gateway for OpenClaw and other clients'
+description = 'Zero-token OpenAI-compatible gateway for OpenToken and other clients'
 readme = 'README.md'
 requires-python = '>=3.13'
 dependencies = [
@@ -21,7 +21,7 @@ dev = [
 ]
 
 [project.scripts]
-openclaw-algae = 'openclaw_algae.main:main'
+opentoken = 'opentoken.main:main'
 
 [build-system]
 requires = ['hatchling>=1.25.0']

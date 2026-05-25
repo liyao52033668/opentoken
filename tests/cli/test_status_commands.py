@@ -1,6 +1,6 @@
 from typer.testing import CliRunner
 
-from openclaw_algae.cli.app import app
+from opentoken.cli.app import app
 
 
 def test_status_command_runs() -> None:

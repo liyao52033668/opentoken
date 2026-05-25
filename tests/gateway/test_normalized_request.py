@@ -1,4 +1,4 @@
-from openclaw_algae.gateway.normalized import (
+from opentoken.gateway.normalized import (
     normalize_chat_completions_request,
     normalize_responses_request,
 )
@@ -133,8 +133,8 @@ def test_normalize_responses_request_maps_function_call_items_to_chat_messages()
         },
     ]
 
-from openclaw_algae.storage.file_store import create_file
-import openclaw_algae.gateway.normalized as normalized_module
+from opentoken.storage.file_store import create_file
+import opentoken.gateway.normalized as normalized_module
 
 
 def test_normalize_chat_completions_request_resolves_uploaded_file_ids(monkeypatch, tmp_path) -> None:

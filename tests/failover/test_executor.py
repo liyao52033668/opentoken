@@ -1,11 +1,11 @@
 """Tests for failover executor."""
 import pytest
 
-from openclaw_algae.failover.errors import (
+from opentoken.failover.errors import (
     NonRetryableError,
     RetryableError,
 )
-from openclaw_algae.failover.executor import FailoverExecutor
+from opentoken.failover.executor import FailoverExecutor
 
 
 def test_execute_first_succeeds() -> None:

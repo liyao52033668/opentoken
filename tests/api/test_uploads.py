@@ -4,8 +4,8 @@ import io
 
 from fastapi.testclient import TestClient
 
-from openclaw_algae.api.app import create_app
-import openclaw_algae.api.routes.uploads as uploads_route_module
+from opentoken.api.app import create_app
+import opentoken.api.routes.uploads as uploads_route_module
 
 
 def test_uploads_create_add_part_complete_and_cancel(monkeypatch, tmp_path) -> None:

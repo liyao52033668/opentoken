@@ -1,8 +1,8 @@
 from typer.testing import CliRunner
 
-import openclaw_algae.cli.app as cli_app_module
-from openclaw_algae.cli.app import app
-from openclaw_algae.verification.service import (
+import opentoken.cli.app as cli_app_module
+from opentoken.cli.app import app
+from opentoken.verification.service import (
     EndpointVerificationResult,
     ProviderVerificationResult,
     VerificationReport,

@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from openclaw_algae.api.app import create_app
+from opentoken.api.app import create_app
 
 
 def test_health_endpoint_reports_ok() -> None:

@@ -14,9 +14,9 @@ from uuid import uuid4
 
 import httpx
 
-from openclaw_algae.config.app_config import load_or_create_app_config
-from openclaw_algae.config.paths import resolve_app_config_path, resolve_providers_dir
-from openclaw_algae.storage.provider_store import list_provider_credentials
+from opentoken.config.app_config import load_or_create_app_config
+from opentoken.config.paths import resolve_app_config_path, resolve_providers_dir
+from opentoken.storage.provider_store import list_provider_credentials
 
 
 THINK_BLOCK_RE = re.compile(r"<think\b[^>]*>[\s\S]*?</think\s*>", re.IGNORECASE)

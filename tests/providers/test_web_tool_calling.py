@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from openclaw_algae.gateway.normalized import NormalizedChatRequest
-from openclaw_algae.providers.web_tool_calling import (
+from opentoken.gateway.normalized import NormalizedChatRequest
+from opentoken.providers.web_tool_calling import (
     build_web_tool_prompt,
     parse_web_tool_response,
 )

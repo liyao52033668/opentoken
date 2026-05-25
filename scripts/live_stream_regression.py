@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from openclaw_algae.verification.stream_probe import run_live_stream_regression, write_regression_report
+from opentoken.verification.stream_probe import run_live_stream_regression, write_regression_report
 
 
 def main() -> None:

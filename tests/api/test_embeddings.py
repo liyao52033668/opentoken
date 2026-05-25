@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from openclaw_algae.api.app import create_app
+from opentoken.api.app import create_app
 
 
 def test_embeddings_supports_string_input() -> None:
