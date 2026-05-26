@@ -30,21 +30,52 @@ OpenToken 做的就是：
 
 ## 当前支持的 provider
 
+**网页登录态 / 浏览器采集（11 个）**
+
 - DeepSeek
-- Qwen International
-- Qwen China
+- Qwen International / Qwen China
 - Kimi
 - Claude
 - Doubao
 - ChatGPT
 - Gemini
 - Grok
-- GLM China
-- GLM International
+- GLM International / GLM China
 - Xiaomi Mimo
-- Manus
 
-> 实际可用模型取决于你当前已经登录/配置成功的 provider。
+**API key 直连（4 个）**
+
+- Manus（官方 API）
+- **NVIDIA NIM** — 走 `integrate.api.nvidia.com/v1`，免费 40 RPM，覆盖 DeepSeek R1、Llama 3.3 70B、Qwen 2.5 72B / Coder 32B、Mixtral 8x22B 等。注册一个 NVIDIA 账号拿 `nvapi-...` key 就能用，0 信用卡。
+- **Unified Proxy (LiteLLM)** — 一个 adapter 接 100+ 后端：OpenRouter / Groq / Together / Bedrock / Anthropic / OpenAI / Perplexity / Cohere / Mistral / xAI / Fireworks / DeepInfra / Azure / Ollama / LM Studio …。LiteLLM 是软依赖，要用时 `uv sync --extra unified` 装上。
+
+> 实际可用模型取决于你当前已经登录/配置成功的 provider。`/v1/models` 只会列出你已经登录、可被路由的那些。
+
+---
+
+## 最近的功能与稳定性改进
+
+- **新 provider：NVIDIA NIM**（`opentoken login nim --api-key nvapi-...`）+ 跨模型自动降级链。在 metadata 里配 `model_chain` 后，被 rate-limit 的模型会自动切到链表里的下一个，调用方完全无感。
+- **新 provider：Unified Proxy (LiteLLM)**（`opentoken login unified --header api_key_openrouter=sk-or-...`），model id 走 `unified/<backend>/<model>`。
+- **安全修复**：
+  - 关掉 `/v1/chat/completions` 附件加载的 SSRF + 任意本地文件读漏洞（block file://、私网/loopback/metadata IP、禁止 301-308 重定向跨域绕过）。
+  - 本地 API key 校验改为 `hmac.compare_digest` 常量时间比较。
+  - 全局异常处理脱敏：cookie / authorization / 内部堆栈不再泄漏到 500 响应，请求加 `X-Request-Id` 头便于追踪。
+  - `/v1/files` 上传走分块读取 + 100 MiB 大小上限，避免单请求打爆内存。
+- **正确性**：
+  - 修复 Grok 跨用户会话串扰（之前会复用账户里任意一条历史 conversation）。
+  - 修复 Qwen `_ensure_chat_id` 在 401 时静默失败导致后续请求带空 chat_id。
+  - 修复流式 + tool_calls 完全失效（projector 之前会把 `<tool_calls>` 标签静默吃掉）。
+  - 修复 finish_reason 永远硬编码 "stop"。
+  - 修复 failover 把 401 / 403 当 retryable（凭证过期靠重试救不回来）。
+  - 所有 provider client cache 改成有界 LRU，给 Qwen-Intl / Doubao / GLM-Intl 补上之前缺失的 cache。
+- **存储**：所有 JSON 持久化改为 `tmpfile + os.replace + flock` 原子写，response_store 加了 TTL + LRU，upload_store 合并后清理 parts，file_store 校验 file_id 防路径遍历。
+- **协议对齐**：
+  - `usage` 不再恒为 0，按 ASCII / CJK 字符做轻量估算。
+  - 非流式 + 流式响应都加 `system_fingerprint=fp_opentoken_v1`。
+  - tool_calls 存在时 content 强制为 null（符合 OpenAI 规范）。
+- **`/v1/embeddings` 改成 501 not_implemented**。原实现是 SHA-256 派生的伪向量（256 维、无归一化、忽略 model 名），把它当 RAG / 向量检索数据源会得到高熵噪声。现在直接返回 501，让上层路由到真实 backend（NIM / 你自己的 sentence-transformer）。
+- **新增 E2E 烟雾脚本**：`scripts/live_provider_smoke.py`，对每个已登录 provider 跑一次非流 + 流的 chat completion，写一份 JSON 报告。比 200-case suite 快 10 倍以上。
 
 ---
 
@@ -194,11 +225,46 @@ uv run opentoken login some-provider \
 
 ### 方式 C：API key 登录
 
-适合 provider 本身支持 `--api-key` 的情况，例如 Manus。
+适合 provider 本身支持 `--api-key` 的情况，例如 Manus、NIM。
 
 ```bash
 uv run opentoken login manus --api-key YOUR_KEY
+uv run opentoken login nim --api-key nvapi-XXXXXXXXXXXXXXXXXXXX
 ```
+
+NIM 的凭证文件 `~/.opentoken/providers/nim.json` 里 metadata 还支持可选的 `model_chain`（JSON 编码的字符串数组），用于跨模型 rate-limit fallback：
+
+```json
+{
+  "kind": "api_key",
+  "metadata": {
+    "api_key": "nvapi-XXXXXXXXXXXXXXXXXXXX",
+    "model_chain": "[\"deepseek-ai/deepseek-r1\", \"meta/llama-3.3-70b-instruct\", \"qwen/qwen2.5-72b-instruct\"]"
+  },
+  "status": "valid"
+}
+```
+
+被请求的模型会先试，如果它返回 429 / `ProviderRateLimitError`，自动切到链表里下一个继续试，整个 fallback 对调用方透明。
+
+### 方式 D：Unified Proxy (LiteLLM)
+
+```bash
+uv sync --extra unified  # 软依赖：仅在用 unified 时装
+
+uv run opentoken login unified \
+  --header api_key_openrouter=sk-or-XXXXXXXXX \
+  --header api_key_anthropic=sk-ant-XXXXXXXX \
+  --header api_key_groq=gsk_XXXXXXXX
+```
+
+调用时 model 形如：
+
+- `unified/openrouter/anthropic/claude-3.5-sonnet`
+- `unified/groq/llama-3.3-70b-versatile`
+- `unified/together/qwen/qwen2.5-coder-32b-instruct`
+
+`unified/<backend>/<model>` 中 `<backend>` 是 LiteLLM 的 provider 名，后面是上游模型 id。Bearer token 还是本地 gateway key；上游 key 从凭证文件取并临时注入到对应环境变量（OPENROUTER_API_KEY / GROQ_API_KEY / …）执行完即清理。
 
 ### 查看当前 provider 状态
 
@@ -246,6 +312,16 @@ uv run opentoken doctor
 uv run opentoken verify
 ```
 
+### 跑跨 provider E2E 烟雾测试
+
+启动网关后，另起一个终端：
+
+```bash
+uv run python scripts/live_provider_smoke.py
+```
+
+会对每个已登录 provider 跑一次非流 + 一次流式 chat completion，并把 per-provider 通过/失败、首字延迟写到 `live_provider_smoke_report.json`。
+
 ---
 
 ## OpenAI-compatible 调用方式
@@ -271,6 +347,10 @@ curl http://127.0.0.1:32117/v1/models \
 - `algae/qwen-intl/qwen3.6-plus`
 - `algae/qwen-cn/Qwen3.5-Flash`
 - `algae/deepseek/deepseek-chat`
+- `algae/nim/deepseek-ai/deepseek-r1`
+- `algae/unified/openrouter/anthropic/claude-3.5-sonnet`
+
+> `algae/` 前缀是给外部 OpenClaw 客户端用的命名空间标识，并非项目名。普通调用直接传整个 id 即可，opentoken 内部会正确解析多段模型名。
 
 ---
 
@@ -308,9 +388,20 @@ curl http://127.0.0.1:32117/v1/chat/completions \
 
 如果你想观察首包是不是实时到达，可以直接看终端里 SSE 持续输出，而不是等完整响应结束后一次性返回。
 
+流式 SSE 中：
+- `system_fingerprint` 字段会出现在第一条和最后一条 chunk
+- `usage` 在末尾 chunk（`finish_reason` 不为 null 的那条）后续接 `[DONE]`
+- 如果 provider 返回 `<tool_calls>` 协议块，opentoken 会在流结束时回填一段标准 OpenAI tool_calls delta，并把 `finish_reason` 改为 `tool_calls`
+
 ---
 
-### 4）Responses API
+### 4）Embeddings
+
+**当前 `/v1/embeddings` 返回 501 `not_implemented`。** opentoken 不再以伪向量伪装实现 embedding 接口；建议把 embedding 流量路由到一个真实 backend（自托管 sentence-transformer / NIM 的 embedding 模型 / OpenAI 等），等真实代理接入后再恢复。
+
+---
+
+### 5）Responses API
 
 ```bash
 curl http://127.0.0.1:32117/v1/responses \
@@ -324,7 +415,7 @@ curl http://127.0.0.1:32117/v1/responses \
 
 ---
 
-### 5）流式 Responses API
+### 6）流式 Responses API
 
 ```bash
 curl http://127.0.0.1:32117/v1/responses \
@@ -340,9 +431,11 @@ curl http://127.0.0.1:32117/v1/responses \
 
 ---
 
-## 给 OpenToken 使用
+## 把 opentoken 注入到外部 OpenClaw 配置
 
-如果你是要让 OpenToken 直接接这个网关，可以先看将要写入的配置：
+`opentoken config` 是一条 bridge 命令，把当前网关写成一段 OpenClaw 格式的 provider patch（provider 名沿用历史的 `algae`），方便外部 OpenClaw 客户端接到这个本地网关上。
+
+先看将要写入的配置：
 
 ```bash
 uv run opentoken config --dry-run
@@ -354,10 +447,10 @@ uv run opentoken config --dry-run
 uv run opentoken config
 ```
 
-如果你要写到自定义 OpenToken 配置文件：
+如果你要写到自定义 OpenClaw 配置文件：
 
 ```bash
-uv run opentoken config --opentoken-config /path/to/opentoken-config.json
+uv run opentoken config --opentoken-config /path/to/openclaw-config.json
 ```
 
 ---
@@ -444,6 +537,18 @@ uv run opentoken login qwen international --browser
 uv run opentoken start --host 0.0.0.0 --port 32117
 ```
 
+### 6）NIM 一直被 rate-limit
+
+给 `~/.opentoken/providers/nim.json` 的 metadata 加 `model_chain` 字段（见上文 "API key 登录" 一节）。当请求的模型被 429 时，opentoken 会自动切到链表里下一个模型继续试，客户端透明。
+
+### 7）想接 OpenRouter / Groq / Together 等 OpenAI-compatible 后端
+
+用 unified provider：`opentoken login unified --header api_key_<backend>=...`，model 走 `unified/<backend>/<model>` 即可。详见 "方式 D"。
+
+### 8）`/v1/embeddings` 返回 501
+
+预期行为。详见 "OpenAI-compatible 调用方式 → Embeddings"。
+
 ---
 
 ## 开发与测试
@@ -465,6 +570,14 @@ uv run opentoken start --host 0.0.0.0 --port 32117
 ```bash
 ./.venv/bin/pytest tests/providers/test_http_providers.py -k qwen
 ```
+
+运行新加的 NIM / unified / model_chain / bounded cache / dry-run 测试：
+
+```bash
+./.venv/bin/pytest tests/providers/test_nim.py tests/providers/test_unified_proxy.py tests/providers/test_client_cache.py tests/storage/test_provider_store_validation.py tests/api/test_auth_timing.py -v
+```
+
+当前单测总数：**453 个全过**。
 
 ---
 
