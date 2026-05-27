@@ -158,7 +158,13 @@ def _find_raw_model_candidates(
     ordered: OrderedDict[str, _ModelCandidate] = OrderedDict()
     for entry in entries:
         provider, provider_model = _split_entry(entry)
-        if raw_model_ref == provider_model:
+        # Case-insensitive matching: model_aliases lookups are case-insensitive
+        # (the qwen-cn map already carries both cases by hand). Keeping the
+        # candidate comparison case-sensitive defeated that index — a request
+        # for "Qwen-3.5-Turbo" wouldn't match the lowercase "qwen-3.5-turbo"
+        # alias key and the model was rejected as unsupported.
+        raw_lower = raw_model_ref.lower()
+        if raw_lower == provider_model.lower():
             ordered.setdefault(
                 entry.id,
                 _ModelCandidate(
@@ -169,7 +175,7 @@ def _find_raw_model_candidates(
             )
             continue
         for alias in list_provider_aliases(provider):
-            if raw_model_ref != alias:
+            if raw_lower != alias.lower():
                 continue
             normalized = normalize_provider_model(provider, alias)
             if normalized != provider_model:

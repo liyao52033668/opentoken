@@ -45,6 +45,20 @@ def test_accepts_normal_prefixed_model() -> None:
     assert resolved.provider_model == "deepseek-chat"
 
 
+def test_bare_model_alias_resolves_case_insensitively() -> None:
+    """A bare (non-prefixed) mixed-case alias must resolve via the catalog
+    candidate path, matching the case-insensitive alias index."""
+    from opentoken.models.catalog import ModelCatalogEntry
+
+    catalog = [
+        ModelCatalogEntry(id="algae/qwen-intl/qwen3.5-flash", provider="opentoken", name="Qwen3.5 Flash"),
+    ]
+    resolved = resolve_requested_model("Qwen-3.5-Turbo", catalog=catalog)
+    assert resolved is not None
+    assert resolved.provider == "qwen-intl"
+    assert resolved.provider_model == "qwen3.5-flash"
+
+
 def test_accepts_slashed_wire_id_for_nim() -> None:
     """NIM/unified ids legitimately embed slashes — these must still resolve."""
     resolved = _resolve("algae/nim/deepseek-ai/deepseek-r1")

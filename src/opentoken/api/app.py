@@ -29,6 +29,16 @@ _MAX_JSON_BODY_BYTES = 25 * 1024 * 1024
 _UNBOUNDED_BODY_PATHS = ("/v1/files", "/v1/uploads")
 
 
+def _path_is_unbounded(path: str) -> bool:
+    # Match on segment boundaries so an unrelated future route like
+    # "/v1/files-bulk" can't accidentally bypass the body-size guard. Exact
+    # match or prefix + "/" only.
+    for prefix in _UNBOUNDED_BODY_PATHS:
+        if path == prefix or path.startswith(prefix + "/"):
+            return True
+    return False
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="OpenToken")
     _bootstrap_gateway_config()
@@ -36,7 +46,7 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def enforce_request_body_size(request: Request, call_next):
         # Only inspect routes that don't already do their own size accounting.
-        if not any(request.url.path.startswith(prefix) for prefix in _UNBOUNDED_BODY_PATHS):
+        if not _path_is_unbounded(request.url.path):
             raw_length = request.headers.get("content-length")
             if raw_length is not None:
                 try:

@@ -81,7 +81,20 @@ def files_content(file_id: str):
             error_type="invalid_request_error",
         )
     metadata, content = resolved
-    return Response(content=content, media_type=str(metadata.get("mime_type", "application/octet-stream")))
+    # Never echo the caller-supplied mime_type as the response content-type:
+    # an uploaded text/html (or SVG) blob would then render same-origin and
+    # execute as stored XSS if the gateway is ever browser-reachable. Serve all
+    # stored content as an opaque download — API clients read raw bytes anyway.
+    filename = str(metadata.get("filename", "")).strip() or file_id
+    safe_filename = filename.replace('"', "").replace("\r", "").replace("\n", "")
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": f'attachment; filename="{safe_filename}"',
+        },
+    )
 
 
 @router.delete("/v1/files/{file_id}", response_model=None)

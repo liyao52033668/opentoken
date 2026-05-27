@@ -40,7 +40,11 @@ def test_files_create_retrieve_list_content_and_delete(monkeypatch, tmp_path) ->
     content_response = client.get(f"/v1/files/{file_id}/content")
     assert content_response.status_code == 200
     assert content_response.content == b"hello files"
-    assert content_response.headers["content-type"].startswith("text/plain")
+    # Stored content is served as an opaque download (never the caller-supplied
+    # mime_type) to prevent stored-XSS via an uploaded text/html or SVG blob.
+    assert content_response.headers["content-type"] == "application/octet-stream"
+    assert content_response.headers["x-content-type-options"] == "nosniff"
+    assert "attachment" in content_response.headers.get("content-disposition", "")
 
     delete_response = client.delete(f"/v1/files/{file_id}")
     assert delete_response.status_code == 200

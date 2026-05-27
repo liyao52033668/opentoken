@@ -8,7 +8,13 @@ from pydantic import BaseModel, Field
 from opentoken.api.errors import openai_error_response
 from opentoken.config.paths import resolve_state_dir
 from opentoken.storage.file_store import create_file
-from opentoken.storage.upload_store import add_upload_part, cancel_upload, complete_upload, create_upload
+from opentoken.storage.upload_store import (
+    UploadSizeExceededError,
+    add_upload_part,
+    cancel_upload,
+    complete_upload,
+    create_upload,
+)
 
 router = APIRouter()
 
@@ -17,7 +23,15 @@ router = APIRouter()
 # vector — and /v1/uploads is exempt from the global body-size middleware
 # precisely because size is supposed to be enforced here.
 _MAX_PART_BYTES = 100 * 1024 * 1024
-_MAX_DECLARED_UPLOAD_BYTES = 8 * 1024 * 1024 * 1024  # 8 GiB, OpenAI's documented ceiling
+# The store concatenates all parts into one contiguous bytes object in
+# complete_upload (then buffers them again to create_file), so the declared
+# total directly drives peak memory. OpenAI documents 8 GiB but we cannot
+# accept that in process memory — even with the per-part cap, the part-count
+# ceiling was unbounded, so a client could declare 8 GiB and send 80×100 MiB
+# parts to OOM the worker. Pin the declared total to the same 100 MiB ceiling
+# as single-shot /v1/files; anything larger needs a streaming/disk-backed
+# implementation we don't have.
+_MAX_DECLARED_UPLOAD_BYTES = 100 * 1024 * 1024
 _PART_CHUNK_SIZE = 1024 * 1024
 
 
@@ -65,12 +79,19 @@ async def uploads_add_part(upload_id: str, data: UploadFile = File(...)):
                 error_type="invalid_request_error",
             )
         chunks.append(chunk)
-    created = add_upload_part(
-        resolve_state_dir(),
-        upload_id,
-        content=b"".join(chunks),
-        content_type=data.content_type,
-    )
+    try:
+        created = add_upload_part(
+            resolve_state_dir(),
+            upload_id,
+            content=b"".join(chunks),
+            content_type=data.content_type,
+        )
+    except UploadSizeExceededError as exc:
+        return openai_error_response(
+            status_code=413,
+            message=str(exc),
+            error_type="invalid_request_error",
+        )
     if created is None:
         return openai_error_response(
             status_code=404,

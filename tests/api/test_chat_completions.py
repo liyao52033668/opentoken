@@ -832,3 +832,18 @@ def test_chat_completions_rejects_non_list_messages_as_400(monkeypatch) -> None:
     )
     assert response.status_code == 400
     assert response.json()["error"]["type"] == "invalid_request_error"
+
+
+def test_path_is_unbounded_only_matches_segment_boundaries() -> None:
+    from opentoken.api.app import _path_is_unbounded
+
+    # Exact and proper-prefix matches DO bypass the body-size guard.
+    assert _path_is_unbounded("/v1/files") is True
+    assert _path_is_unbounded("/v1/files/abc/content") is True
+    assert _path_is_unbounded("/v1/uploads/u-1/parts") is True
+
+    # Unrelated paths sharing a prefix DO NOT bypass it.
+    assert _path_is_unbounded("/v1/files-bulk") is False
+    assert _path_is_unbounded("/v1/uploads-status") is False
+    assert _path_is_unbounded("/v1/filesomething") is False
+    assert _path_is_unbounded("/v1/chat/completions") is False

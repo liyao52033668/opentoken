@@ -14,6 +14,12 @@ _DEFAULT_STORE: dict[str, object] = {
 }
 
 
+class UploadSizeExceededError(Exception):
+    """Raised by add_upload_part when accepting the part would push the running
+    parts-byte total beyond the upload's declared `bytes`. The route turns this
+    into a 413 so the client knows to stop sending."""
+
+
 def create_upload(
     state_dir: Path,
     *,
@@ -76,6 +82,24 @@ def add_upload_part(
             return None
         if str(entry.get("status", "")) != "created":
             return None
+        parts = entry.setdefault("parts", [])
+        if not isinstance(parts, list):
+            parts = []
+            entry["parts"] = parts
+        # Reject parts that would push the upload past its declared size. Since
+        # complete_upload concatenates every part into one in-memory buffer,
+        # an unbounded number of parts is an OOM vector even with a per-part
+        # cap; bounding the running total to the declared `bytes` keeps peak
+        # memory tied to the (already capped) declaration. _RAISE_OVER_DECLARED
+        # is signalled to the route so it can return 413.
+        declared = int(entry.get("bytes", 0) or 0)
+        existing_total = sum(
+            int(p.get("bytes", 0) or 0) for p in parts if isinstance(p, dict)
+        )
+        if declared and existing_total + len(content) > declared:
+            raise UploadSizeExceededError(
+                f"Upload {upload_id} parts exceed the declared size of {declared} bytes."
+            )
         part_id = f"part-{uuid4().hex}"
         part = {
             "id": part_id,
@@ -85,10 +109,6 @@ def add_upload_part(
             "bytes": len(content),
             "content_type": content_type or "application/octet-stream",
         }
-        parts = entry.setdefault("parts", [])
-        if not isinstance(parts, list):
-            parts = []
-            entry["parts"] = parts
         parts.append(part)
         _save_store(path, store)
         # 0600 owner-only: upload parts hold user-supplied content (images,

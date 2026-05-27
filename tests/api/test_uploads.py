@@ -96,3 +96,32 @@ def test_uploads_add_part_rejects_oversize_part(monkeypatch, tmp_path) -> None:
     )
     assert response.status_code == 413
     assert "maximum part size" in response.json()["error"]["message"]
+
+
+def test_uploads_parts_exceeding_declared_total_are_rejected(monkeypatch, tmp_path) -> None:
+    """Even within the per-part cap, the SUM of parts must not exceed the
+    declared `bytes` — otherwise an unbounded part count concatenated in
+    memory at /complete is an OOM vector."""
+    monkeypatch.setattr(uploads_route_module, "resolve_state_dir", lambda: tmp_path)
+    client = TestClient(create_app())
+
+    create_response = client.post(
+        "/v1/uploads",
+        json={"filename": "f.bin", "bytes": 10, "mime_type": "application/octet-stream", "purpose": "assistants"},
+    )
+    upload_id = create_response.json()["id"]
+
+    # First part fits within the declared 10 bytes.
+    first = client.post(
+        f"/v1/uploads/{upload_id}/parts",
+        files={"data": ("p1", b"x" * 8, "application/octet-stream")},
+    )
+    assert first.status_code == 200
+
+    # Second part would push the total to 16 > 10 → rejected with 413.
+    second = client.post(
+        f"/v1/uploads/{upload_id}/parts",
+        files={"data": ("p2", b"y" * 8, "application/octet-stream")},
+    )
+    assert second.status_code == 413
+    assert "declared size" in second.json()["error"]["message"]
