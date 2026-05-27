@@ -1,11 +1,7 @@
 """SSE streaming utilities for OpenAI-compatible responses."""
 from __future__ import annotations
 
-import json
 import re
-from collections.abc import AsyncIterator
-from time import time
-from uuid import uuid4
 
 
 _BASE_HIDDEN_PROTOCOL_TAGS = frozenset({"tool_calls", "tool_call"})
@@ -31,24 +27,6 @@ _PROTOCOL_TAG_PATTERNS: dict[tuple[str, bool], re.Pattern[str]] = {
     ("final_answer", True): re.compile(r"</final_answer\s*>", re.IGNORECASE),
 }
 _THINK_BLOCK_PATTERN = re.compile(r"(<think\b[^>]*>)([\s\S]*?)(</think\s*>)", re.IGNORECASE)
-
-
-def sse_event(data: object, *, event_name: str | None = None) -> str:
-    """Format an SSE event line."""
-    lines = []
-    if event_name:
-        lines.append(f"event: {event_name}")
-    if isinstance(data, str):
-        lines.append(f"data: {data}")
-    else:
-        lines.append(f"data: {json.dumps(data, separators=(',', ':'))}")
-    lines.append("")
-    return "\n".join(lines)
-
-
-def sse_comment(text: str) -> str:
-    """Format an SSE comment (heartbeat)."""
-    return f":{text}\n\n"
 
 
 def sse_response_headers() -> dict[str, str]:
@@ -225,89 +203,3 @@ def _match_protocol_tag(
     if not pattern.fullmatch(candidate):
         return None
     return tag_name, is_closing, end_index + 1, candidate
-
-
-def chat_completion_chunk(
-    completion_id: str,
-    model: str,
-    content: str,
-    *,
-    finish_reason: str | None = None,
-    created: int | None = None,
-) -> str:
-    """Format a chat completion chunk."""
-    chunk = {
-        "id": completion_id,
-        "object": "chat.completion.chunk",
-        "created": created or int(time()),
-        "model": model,
-        "choices": [
-            {
-                "index": 0,
-                "delta": {"role": "assistant", "content": content},
-                "finish_reason": finish_reason,
-            }
-        ],
-    }
-    return sse_event(chunk)
-
-
-def chat_completion_done(completion_id: str, model: str, *, created: int | None = None) -> str:
-    """Format the final chat completion chunk."""
-    chunk = {
-        "id": completion_id,
-        "object": "chat.completion.chunk",
-        "created": created or int(time()),
-        "model": model,
-        "choices": [
-            {
-                "index": 0,
-                "delta": {},
-                "finish_reason": "stop",
-            }
-        ],
-    }
-    return sse_event(chunk)
-
-
-async def stream_with_heartbeat(
-    content_stream: AsyncIterator[str],
-    model: str,
-    *,
-    completion_id: str | None = None,
-    heartbeat_interval: float = 3.0,
-) -> AsyncIterator[str]:
-    """Wrap a content stream with heartbeat comments to prevent timeout.
-
-    Yields SSE chunks from the content stream, interspersed with
-    heartbeat comments if no content arrives within the interval.
-    """
-    import asyncio
-
-    completion_id = completion_id or f"chatcmpl-{uuid4().hex}"
-    created = int(time())
-
-    # Yield first chunk with role
-    yield chat_completion_chunk(
-        completion_id, model, "", finish_reason=None, created=created
-    )
-
-    last_activity = time()
-    content_sent = False
-
-    async for chunk_content in content_stream:
-        # Check if we need a heartbeat
-        while time() - last_activity > heartbeat_interval:
-            yield sse_comment("keepalive")
-            last_activity = time()
-
-        if chunk_content:
-            yield chat_completion_chunk(
-                completion_id, model, chunk_content, created=created
-            )
-            content_sent = True
-            last_activity = time()
-
-    # Final chunk
-    yield chat_completion_done(completion_id, model, created=created)
-    yield sse_event("[DONE]")
