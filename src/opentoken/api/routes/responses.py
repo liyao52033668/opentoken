@@ -8,7 +8,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
-from opentoken.api.errors import openai_error_response
+from opentoken.api.errors import classify_provider_runtime_error, openai_error_response
 from opentoken.api.streaming import (
     ProtocolMarkupProjector,
     chunk_visible_text,
@@ -80,10 +80,14 @@ def responses(payload: dict[str, object]) -> dict[str, object]:
             error_type="rate_limit_error",
         )
     except RuntimeError as exc:
+        # Router failures get the shared classifier (missing creds -> 401,
+        # unsupported model -> 400, anything else -> 502). The non-stream
+        # /v1/responses path used to force-map all of these to 400.
+        status_code, error_type = classify_provider_runtime_error(exc)
         return openai_error_response(
-            status_code=400,
+            status_code=status_code,
             message=str(exc),
-            error_type="invalid_request_error",
+            error_type=error_type,
         )
     except httpx.HTTPError as exc:
         return openai_error_response(

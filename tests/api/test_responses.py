@@ -909,3 +909,36 @@ def test_responses_stream_error_event_uses_flat_openai_responses_shape(monkeypat
     assert payload["code"] in {"invalid_request_error", "api_error", "rate_limit_error"}
     assert "upstream exploded" in str(payload["message"])
     assert "param" in payload
+
+
+def test_responses_maps_missing_credentials_to_401(monkeypatch) -> None:
+    class MissingCredsRouter:
+        def chat(self, request):
+            raise RuntimeError("Missing claude credentials. Run `opentoken login claude` first.")
+
+    monkeypatch.setattr(responses_route_module, "get_default_router", lambda: MissingCredsRouter())
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/v1/responses",
+        json={"model": "algae/claude/claude-sonnet-4-6", "input": "hi"},
+    )
+    # Shared classifier: provider not logged in -> 401, not 400.
+    assert response.status_code == 401
+    assert response.json()["error"]["type"] == "authentication_error"
+
+
+def test_responses_maps_upstream_failure_to_502(monkeypatch) -> None:
+    class UpstreamFailedRouter:
+        def chat(self, request):
+            raise RuntimeError("All browser workers failed for doubao: crashed")
+
+    monkeypatch.setattr(responses_route_module, "get_default_router", lambda: UpstreamFailedRouter())
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/v1/responses",
+        json={"model": "algae/doubao/doubao-seed-2.0", "input": "hi"},
+    )
+    assert response.status_code == 502
+    assert response.json()["error"]["type"] == "api_error"

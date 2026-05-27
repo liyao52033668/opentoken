@@ -9,7 +9,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
-from opentoken.api.errors import openai_error_response
+from opentoken.api.errors import classify_provider_runtime_error, openai_error_response
 from opentoken.api.streaming import (
     ProtocolMarkupProjector,
     chunk_visible_text,
@@ -27,30 +27,6 @@ from opentoken.providers.base import ProviderRateLimitError
 from opentoken.providers.web_tool_calling import parse_web_tool_response
 
 router = APIRouter()
-
-
-def _classify_provider_runtime_error(exc: RuntimeError) -> tuple[int, str]:
-    """Pick a sensible OpenAI-shaped (status, error_type) for a RuntimeError
-    raised by router.chat() / router.stream_chat(). Provider failures are not
-    request-validation errors — mapping them all to 400 invalid_request_error
-    misleads clients into retrying a request that the upstream provider, not the
-    request itself, broke."""
-    message = str(exc)
-    lowered = message.lower()
-    # Request-validation errors that the router happens to raise (the client
-    # asked for something the gateway can't route): 400. Same status as the
-    # normalize_chat_completions_request path, just a different origin.
-    if "unsupported model" in lowered or "no route configured" in lowered or "no adapter" in lowered:
-        return 400, "invalid_request_error"
-    if "missing" in lowered and ("credential" in lowered or "api key" in lowered):
-        # The user hasn't logged in for this provider. 401 lets OpenAI-style
-        # clients route through their re-auth flow.
-        return 401, "authentication_error"
-    if "expired" in lowered or "re-login" in lowered or "re-log in" in lowered or "session expired" in lowered:
-        return 401, "authentication_error"
-    # Anything else from the router (worker failures, parse errors, upstream
-    # returned empty, …) is a gateway-side or upstream failure — 502, not 400.
-    return 502, "api_error"
 
 
 @router.post("/v1/chat/completions")
@@ -101,7 +77,7 @@ def chat_completions(payload: dict[str, object]) -> dict[str, object]:
             error_type="rate_limit_error",
         )
     except RuntimeError as exc:
-        status_code, error_type = _classify_provider_runtime_error(exc)
+        status_code, error_type = classify_provider_runtime_error(exc)
         return openai_error_response(
             status_code=status_code,
             message=str(exc),
