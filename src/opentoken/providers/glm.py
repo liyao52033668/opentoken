@@ -18,7 +18,7 @@ import httpx
 from opentoken.gateway.normalized import NormalizedChatRequest
 from opentoken.models.provider_credentials import ProviderCredentialRecord
 from opentoken.providers._client_cache import BoundedClientCache
-from opentoken.providers.base import ChatResponse, ProviderAdapter
+from opentoken.providers.base import ChatResponse, ProviderAdapter, raise_for_provider_auth
 from opentoken.providers.prompts import build_role_prompt
 
 _GLM_SIGN_SECRET = "8a1317a7468aa3ad86e997d08f3f31cb"
@@ -327,6 +327,10 @@ class GLMApiClient:
                 json=payload,
             )
 
+        raise_for_provider_auth(
+            response.status_code, provider="GLM", login_command="opentoken login glm china"
+        )
+
         response.raise_for_status()
         content, conversation_id = _parse_glm_sse_response(response.text)
         if conversation_id:
@@ -375,6 +379,9 @@ class GLMApiClient:
                 )
                 return
 
+            raise_for_provider_auth(
+                response.status_code, provider="GLM", login_command="opentoken login glm china"
+            )
             response.raise_for_status()
             emitted = ""
             for raw_line in response.iter_lines():
