@@ -18,7 +18,25 @@ def classify_provider_runtime_error(exc: RuntimeError) -> tuple[int, str]:
         "credential" in lowered or "api key" in lowered or "token" in lowered
     ):
         return 401, "authentication_error"
-    if "expired" in lowered or "re-login" in lowered or "re-log in" in lowered or "session expired" in lowered:
+    # Session / auth-token failures, including the ways providers signal them
+    # in a body rather than via HTTP status:
+    #   - "expired" / "re-login" / "refresh the session"   (our own messages)
+    #   - "unauthenticated" / "invalid_auth_token"          (Kimi gRPC body)
+    #   - "no chat id"                                      (Qwen: stale session
+    #     can't create a chat — returns 200 with no id)
+    _AUTH_SIGNALS = (
+        "expired",
+        "re-login",
+        "re-log in",
+        "session expired",
+        "refresh the session",
+        "unauthenticated",
+        "invalid_auth_token",
+        "invalid auth token",
+        "no chat id",
+        "run `opentoken login",
+    )
+    if any(signal in lowered for signal in _AUTH_SIGNALS):
         return 401, "authentication_error"
     # Worker failures, parse errors, empty upstream responses, … — gateway-side
     # or upstream failure, 502 not 400.

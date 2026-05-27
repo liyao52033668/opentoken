@@ -38,3 +38,20 @@ def test_classify_provider_runtime_error(message: str, expected_status: int, exp
 def test_classify_is_case_insensitive() -> None:
     status, error_type = classify_provider_runtime_error(RuntimeError("UNSUPPORTED MODEL: x"))
     assert (status, error_type) == (400, "invalid_request_error")
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        # Qwen: stale session can't create a chat (returns 200 with no id).
+        "Qwen returned no chat id (status=200). Run `opentoken login qwen` to refresh the session.",
+        "Qwen credentials expired or invalid. Run `opentoken login qwen` again.",
+        # Kimi gRPC body signals auth failure rather than via HTTP status.
+        "Kimi error: {'code': 'unauthenticated', 'details': [{'reason': 'REASON_INVALID_AUTH_TOKEN'}]}",
+        # Generic re-login hint in any provider message.
+        "Something broke. Run `opentoken login grok` to refresh.",
+    ],
+)
+def test_classify_body_signalled_auth_failures_as_401(message: str) -> None:
+    status, error_type = classify_provider_runtime_error(RuntimeError(message))
+    assert (status, error_type) == (401, "authentication_error")
