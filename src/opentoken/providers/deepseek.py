@@ -43,7 +43,11 @@ class DeepSeekWebClient:
     ) -> None:
         self._credentials = credentials
         self._base_url = base_url.rstrip("/")
-        self._client = client or httpx.Client(timeout=30.0, trust_env=False)
+        # 120s matches NIM's reasoning-friendly default. DeepSeek Reasoner can
+        # take >30s to produce a first byte on hard prompts; a 30s timeout cut
+        # off legitimate slow reasoning responses with a confusing httpx
+        # timeout error.
+        self._client = client or httpx.Client(timeout=120.0, trust_env=False)
         self._session_id: str | None = None
 
     def build_headers(self) -> dict[str, str]:
