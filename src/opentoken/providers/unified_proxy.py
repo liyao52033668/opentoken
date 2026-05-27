@@ -145,6 +145,10 @@ class UnifiedProxyAdapter(ProviderAdapter):
             "tools": request.tools,
             "tool_choice": request.tool_choice,
         }
+        if request.max_tokens is not None:
+            kwargs["max_tokens"] = request.max_tokens
+        if request.top_p is not None:
+            kwargs["top_p"] = request.top_p
         if api_key:
             kwargs["api_key"] = api_key
         response = litellm.completion(**kwargs)
@@ -170,6 +174,8 @@ class UnifiedProxyAdapter(ProviderAdapter):
             model=model,
             messages=_messages_from_request(request),
             temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            top_p=request.top_p,
             tools=request.tools,
             tool_choice=request.tool_choice,
             api_key=api_key,
@@ -212,6 +218,8 @@ def _stream_unified(
     tools: list[dict[str, object]] | None,
     tool_choice: object,
     api_key: str | None,
+    max_tokens: int | None = None,
+    top_p: float | None = None,
 ) -> Iterator[str]:
     kwargs: dict[str, object] = {
         "model": model,
@@ -221,6 +229,10 @@ def _stream_unified(
         "tools": tools,
         "tool_choice": tool_choice,
     }
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+    if top_p is not None:
+        kwargs["top_p"] = top_p
     if api_key:
         kwargs["api_key"] = api_key
     stream = litellm.completion(**kwargs)

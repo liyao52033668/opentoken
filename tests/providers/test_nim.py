@@ -63,6 +63,59 @@ def test_nim_chat_returns_first_choice():
     assert response.finish_reason == "stop"
 
 
+def test_nim_chat_forwards_max_tokens_and_top_p():
+    """max_tokens and top_p from the request must reach the NIM payload — they
+    were silently dropped before NormalizedChatRequest modeled them."""
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        seen.update(_json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}]},
+        )
+
+    transport = httpx.MockTransport(handler)
+    adapter = NimChatAdapter(
+        client_factory=lambda credentials: httpx.Client(transport=transport, trust_env=False)
+    )
+    request = NormalizedChatRequest(
+        model="deepseek-ai/deepseek-r1",
+        messages=[{"role": "user", "content": "hi"}],
+        max_tokens=42,
+        top_p=0.3,
+        stream=False,
+    )
+    adapter.chat(request, _credentials())
+    assert seen.get("max_tokens") == 42
+    assert seen.get("top_p") == 0.3
+
+
+def test_nim_chat_omits_unset_sampling_params():
+    """When max_tokens/top_p are unset, they must not appear in the payload
+    (sending nulls can trip strict backends)."""
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        seen.update(_json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}]},
+        )
+
+    transport = httpx.MockTransport(handler)
+    adapter = NimChatAdapter(
+        client_factory=lambda credentials: httpx.Client(transport=transport, trust_env=False)
+    )
+    adapter.chat(_request(), _credentials())
+    assert "max_tokens" not in seen
+    assert "top_p" not in seen
+
+
 def test_nim_stream_wraps_reasoning_deltas_with_think_tags():
     """Reasoning models stream their chain of thought as delta.reasoning_content
     BEFORE the answer arrives in delta.content. Open <think> on the first

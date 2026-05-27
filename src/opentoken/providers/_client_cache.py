@@ -19,6 +19,33 @@ T = TypeVar("T")
 DEFAULT_MAX_CLIENTS = 64
 
 
+def close_httpx_backed_client(client: object) -> None:
+    """Best-effort closer for the provider client wrappers that BoundedClientCache
+    holds. Every adapter's wrapper class owns an httpx.Client as `self._client`
+    but does not itself expose `close()`; without explicitly closing on
+    eviction, LRU eviction silently drops the httpx connection pool and its
+    sockets, leaking FDs over time as callers rotate through credentials.
+
+    Prefer the wrapper's own close() if it exposes one; otherwise close the
+    conventional inner `_client`. Swallow exceptions — eviction must not raise
+    or the cache's other entries could be left in an inconsistent state.
+    """
+    closer = getattr(client, "close", None)
+    if callable(closer):
+        try:
+            closer()
+        except Exception:
+            pass
+        return
+    inner = getattr(client, "_client", None)
+    inner_close = getattr(inner, "close", None)
+    if callable(inner_close):
+        try:
+            inner_close()
+        except Exception:
+            pass
+
+
 class BoundedClientCache(Generic[T]):
     """Thread-safe LRU cache for provider clients.
 

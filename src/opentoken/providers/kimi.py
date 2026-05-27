@@ -10,7 +10,7 @@ import httpx
 from opentoken.gateway.normalized import NormalizedChatRequest
 from opentoken.models.model_aliases import normalize_provider_model
 from opentoken.models.provider_credentials import ProviderCredentialRecord
-from opentoken.providers._client_cache import BoundedClientCache
+from opentoken.providers._client_cache import BoundedClientCache, close_httpx_backed_client
 from opentoken.providers.base import ChatResponse, ProviderAdapter, raise_for_provider_auth, ProviderRateLimitError
 from opentoken.providers.prompts import build_role_prompt
 from opentoken.providers.web_tool_calling import (
@@ -125,7 +125,7 @@ class KimiWebAdapter(ProviderAdapter):
         self, *, client_factory: Callable[[ProviderCredentialRecord], KimiWebClient] | None = None
     ) -> None:
         self._client_factory = client_factory or (lambda cred: KimiWebClient(cred))
-        self._client_cache: BoundedClientCache[KimiWebClient] = BoundedClientCache()
+        self._client_cache: BoundedClientCache[KimiWebClient] = BoundedClientCache(closer=close_httpx_backed_client)
 
     def _client_key(self, credentials: ProviderCredentialRecord) -> str:
         return f"{credentials.provider}:{credentials.cookie}:{credentials.user_agent}"

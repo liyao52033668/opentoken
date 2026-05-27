@@ -11,7 +11,7 @@ import httpx
 
 from opentoken.gateway.normalized import NormalizedChatRequest
 from opentoken.models.provider_credentials import ProviderCredentialRecord
-from opentoken.providers._client_cache import BoundedClientCache
+from opentoken.providers._client_cache import BoundedClientCache, close_httpx_backed_client
 from opentoken.providers.base import ChatResponse, ProviderAdapter, ProviderRateLimitError
 from opentoken.providers.prompts import build_doubao_prompt
 
@@ -282,7 +282,7 @@ class DoubaoWebAdapter(ProviderAdapter):
         client_factory: Callable[[ProviderCredentialRecord], DoubaoWebClient] | None = None,
     ) -> None:
         self._client_factory = client_factory or (lambda credentials: DoubaoWebClient(credentials))
-        self._client_cache: BoundedClientCache[DoubaoWebClient] = BoundedClientCache()
+        self._client_cache: BoundedClientCache[DoubaoWebClient] = BoundedClientCache(closer=close_httpx_backed_client)
 
     def _get_client(self, credentials: ProviderCredentialRecord) -> DoubaoWebClient:
         key = f"{credentials.provider}:{credentials.cookie}:{credentials.user_agent}"

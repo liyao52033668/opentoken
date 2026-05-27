@@ -15,7 +15,7 @@ from opentoken.config.paths import resolve_state_dir
 from opentoken.gateway.normalized import NormalizedChatRequest
 from opentoken.models.model_aliases import normalize_provider_model
 from opentoken.models.provider_credentials import ProviderCredentialRecord
-from opentoken.providers._client_cache import BoundedClientCache
+from opentoken.providers._client_cache import BoundedClientCache, close_httpx_backed_client
 from opentoken.providers.base import ChatResponse, ProviderAdapter, raise_for_provider_auth
 from opentoken.providers.prompts import build_qwen_prompt
 from opentoken.providers.web_tool_calling import (
@@ -247,7 +247,7 @@ class QwenWebAdapter(ProviderAdapter):
             lambda credentials: QwenApiClient(credentials, base_url=base_url)
         )
         self._stream_client_factory = stream_client_factory
-        self._client_cache: BoundedClientCache[QwenApiClient] = BoundedClientCache()
+        self._client_cache: BoundedClientCache[QwenApiClient] = BoundedClientCache(closer=close_httpx_backed_client)
 
     def _client_key(self, credentials: ProviderCredentialRecord) -> str:
         return f"{credentials.provider}:{credentials.cookie}:{credentials.user_agent}"
@@ -582,7 +582,7 @@ class QwenCnWebAdapter(ProviderAdapter):
         self._client_factory = client_factory or (
             lambda credentials: QwenCnApiClient(credentials)
         )
-        self._client_cache: BoundedClientCache[QwenCnApiClient] = BoundedClientCache()
+        self._client_cache: BoundedClientCache[QwenCnApiClient] = BoundedClientCache(closer=close_httpx_backed_client)
 
     def _client_key(self, credentials: ProviderCredentialRecord) -> str:
         return f"{credentials.provider}:{credentials.cookie}:{credentials.user_agent}"

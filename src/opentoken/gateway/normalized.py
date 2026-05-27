@@ -12,6 +12,8 @@ class NormalizedChatRequest(BaseModel):
     model: str
     messages: list[dict[str, object]] = Field(default_factory=list)
     temperature: float | None = None
+    max_tokens: int | None = None
+    top_p: float | None = None
     stream: bool = False
     tools: list[dict[str, object]] | None = None
     tool_choice: object = None
@@ -50,13 +52,40 @@ def normalize_responses_request(payload: dict[str, object]) -> NormalizedChatReq
             messages.extend(normalized_items)
     else:
         messages.append({"role": "user", "content": str(input_value)})
+    # Responses API uses `max_output_tokens` where Chat Completions uses
+    # `max_tokens`; surface either under the unified field so adapters apply
+    # the same cap regardless of which endpoint the client used.
+    max_tokens_raw = payload.get("max_output_tokens", payload.get("max_tokens"))
     return NormalizedChatRequest(
         model=model,
         messages=_resolve_message_attachments(messages),
+        temperature=_optional_number(payload.get("temperature")),
+        max_tokens=_optional_int(max_tokens_raw),
+        top_p=_optional_number(payload.get("top_p")),
         stream=bool(payload.get("stream", False)),
         tools=_normalize_tools(payload.get("tools")),
         tool_choice=payload.get("tool_choice"),
     )
+
+
+def _optional_number(value: object) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
 
 
 def _normalize_tools(value: object) -> list[dict[str, object]] | None:

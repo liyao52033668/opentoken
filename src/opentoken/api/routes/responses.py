@@ -672,10 +672,14 @@ def _save_response_history(*, response_id: str, request, response: ChatResponse)
 def _stream_error_payload(exc: Exception) -> dict[str, object]:
     if isinstance(exc, ProviderRateLimitError):
         error_type = "rate_limit_error"
+    elif isinstance(exc, RuntimeError):
+        # Match the non-stream path: classify upstream RuntimeErrors so a 502 /
+        # auth failure mid-stream isn't mislabeled invalid_request_error.
+        _status, error_type = classify_provider_runtime_error(exc)
     elif isinstance(exc, httpx.HTTPError):
         error_type = "api_error"
     else:
-        error_type = "invalid_request_error"
+        error_type = "api_error"
     # OpenAI Responses streaming "error" events carry flat top-level fields
     # (type/code/message/param) — NOT a nested "error" object (that nested shape
     # is the Chat Completions / non-stream convention). Clients parsing the

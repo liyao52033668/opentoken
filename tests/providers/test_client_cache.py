@@ -1,7 +1,10 @@
 """BoundedClientCache: LRU semantics + closer hook."""
 from __future__ import annotations
 
-from opentoken.providers._client_cache import BoundedClientCache
+from opentoken.providers._client_cache import (
+    BoundedClientCache,
+    close_httpx_backed_client,
+)
 
 
 def test_cache_returns_stored_values():
@@ -45,6 +48,69 @@ def test_cache_clear_closes_all_entries():
     assert sorted(closed) == [1, 2]
     assert cache.get("a") is None
     assert cache.get("b") is None
+
+
+def test_close_httpx_backed_client_prefers_public_close():
+    class WrapperWithClose:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    w = WrapperWithClose()
+    close_httpx_backed_client(w)
+    assert w.closed is True
+
+
+def test_close_httpx_backed_client_falls_back_to_inner_client():
+    class InnerHttpx:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    class WrapperNoClose:
+        def __init__(self):
+            self._client = InnerHttpx()
+
+    w = WrapperNoClose()
+    close_httpx_backed_client(w)
+    assert w._client.closed is True
+
+
+def test_close_httpx_backed_client_swallows_errors():
+    class Boom:
+        def close(self):
+            raise RuntimeError("boom")
+
+    # Must not raise — eviction can't be allowed to propagate.
+    close_httpx_backed_client(Boom())
+
+
+def test_cache_eviction_closes_inner_httpx_client():
+    """End-to-end: an evicted provider-style wrapper has its inner httpx client
+    closed, so rotating through more than max_size credentials doesn't leak
+    connection pools."""
+    class InnerHttpx:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    class FakeClient:
+        def __init__(self):
+            self._client = InnerHttpx()
+
+    cache: BoundedClientCache[FakeClient] = BoundedClientCache(
+        max_size=1, closer=close_httpx_backed_client
+    )
+    first = FakeClient()
+    cache.set("a", first)
+    cache.set("b", FakeClient())  # Evicts "a".
+    assert first._client.closed is True
 
 
 def test_cache_get_or_create_only_calls_factory_once():

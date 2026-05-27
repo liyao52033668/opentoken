@@ -17,7 +17,7 @@ import httpx
 
 from opentoken.gateway.normalized import NormalizedChatRequest
 from opentoken.models.provider_credentials import ProviderCredentialRecord
-from opentoken.providers._client_cache import BoundedClientCache
+from opentoken.providers._client_cache import BoundedClientCache, close_httpx_backed_client
 from opentoken.providers.base import ChatResponse, ProviderAdapter, raise_for_provider_auth
 from opentoken.providers.prompts import build_role_prompt
 
@@ -412,7 +412,7 @@ class GLMWebAdapter(ProviderAdapter):
         self._client_factory = client_factory or (
             lambda credentials: GLMApiClient(credentials)
         )
-        self._client_cache: BoundedClientCache[GLMApiClient] = BoundedClientCache()
+        self._client_cache: BoundedClientCache[GLMApiClient] = BoundedClientCache(closer=close_httpx_backed_client)
 
     def _client_key(self, credentials: ProviderCredentialRecord) -> str:
         return f"{credentials.provider}:{credentials.cookie}:{credentials.user_agent}"
@@ -879,7 +879,7 @@ class GLMIntlWebAdapter(ProviderAdapter):
         self._client_factory = client_factory or (
             lambda credentials: GLMIntlApiClient(credentials)
         )
-        self._client_cache: BoundedClientCache[GLMIntlApiClient] = BoundedClientCache()
+        self._client_cache: BoundedClientCache[GLMIntlApiClient] = BoundedClientCache(closer=close_httpx_backed_client)
 
     def _get_client(self, credentials: ProviderCredentialRecord) -> GLMIntlApiClient:
         key = f"{credentials.provider}:{credentials.cookie}:{credentials.user_agent}"
