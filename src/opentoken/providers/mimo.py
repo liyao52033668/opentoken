@@ -13,7 +13,7 @@ from opentoken.gateway.normalized import NormalizedChatRequest
 from opentoken.models.model_aliases import normalize_provider_model
 from opentoken.models.provider_credentials import ProviderCredentialRecord
 from opentoken.providers._client_cache import BoundedClientCache
-from opentoken.providers.base import ChatResponse, ProviderAdapter
+from opentoken.providers.base import ChatResponse, ProviderAdapter, raise_for_provider_auth
 from opentoken.providers.prompts import build_role_prompt
 from opentoken.providers.web_tool_calling import (
     build_web_tool_prompt,
@@ -91,6 +91,9 @@ class MimoWebClient:
                 "multiMedias": [],
             },
         )
+        raise_for_provider_auth(
+            response.status_code, provider="MiMo", login_command="opentoken login mimo"
+        )
         response.raise_for_status()
         content = _parse_mimo_response_text(response.text)
         if not content:
@@ -120,6 +123,9 @@ class MimoWebClient:
                 "multiMedias": [],
             },
         ) as response:
+            raise_for_provider_auth(
+                response.status_code, provider="MiMo", login_command="opentoken login mimo"
+            )
             response.raise_for_status()
             yield from _iter_mimo_response_text(response.iter_lines())
 

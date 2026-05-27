@@ -11,7 +11,7 @@ from opentoken.gateway.normalized import NormalizedChatRequest
 from opentoken.models.model_aliases import normalize_provider_model
 from opentoken.models.provider_credentials import ProviderCredentialRecord
 from opentoken.providers._client_cache import BoundedClientCache
-from opentoken.providers.base import ChatResponse, ProviderAdapter, ProviderRateLimitError
+from opentoken.providers.base import ChatResponse, ProviderAdapter, raise_for_provider_auth, ProviderRateLimitError
 from opentoken.providers.prompts import build_role_prompt
 from opentoken.providers.web_tool_calling import (
     build_web_tool_prompt,
@@ -69,6 +69,9 @@ class KimiWebClient:
                 headers=self._build_headers(),
                 content=request_buffer,
             )
+            raise_for_provider_auth(
+                response.status_code, provider="Kimi", login_command="opentoken login kimi"
+            )
             response.raise_for_status()
             try:
                 return self._parse_response(response.content)
@@ -84,6 +87,9 @@ class KimiWebClient:
             headers=self._build_headers(),
             content=self._build_request_buffer(message=message, model=model),
         ) as response:
+            raise_for_provider_auth(
+                response.status_code, provider="Kimi", login_command="opentoken login kimi"
+            )
             response.raise_for_status()
             yield from self._iter_response_chunks(response.iter_bytes())
 
