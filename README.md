@@ -53,6 +53,46 @@ OpenToken 做的就是：
 
 ---
 
+## /v1/models 不再写死，所有模型实时发现
+
+opentoken 早期版本在 `models/catalog.py` 里写死了一份 33 项的模型清单，作为 `/v1/models` 的数据源。这有两个根本问题：
+
+1. **会过时** —— Qwen3.7-Max、GLM-5.1、GLM-5-Turbo、doubao-thinking 这些上游已经上线的模型出不来，反过来 `glm-4-plus`、`qwen3.5-turbo` 这种早就下线的模型还在响应里
+2. **会撒谎** —— 即便用户没登录任何 provider，`/v1/models` 也会展示 33 个模型，所有第一次调用都会 401
+
+现在 `/v1/models` 完全由 `opentoken.models.discovery` 动态产生，每个 provider 独立查询：
+
+| Provider | 发现方式 |
+|----------|---------|
+| qwen-intl / qwen-cn / doubao / glm-cn | 抓自上游 web 页面或 dialog（含 Camoufox 浏览器抓取） |
+| **glm-intl** | `GET chat.z.ai/api/models`，失败回退抓首页 |
+| **deepseek** | `GET /api/v0/users/current` 校验凭证有效，返回协议支持的两个 wire 模型 |
+| **kimi** | 抓 kimi.com 首页嵌入的 model metadata |
+| **nim** | `GET integrate.api.nvidia.com/v1/models` Bearer auth（标准 OpenAI 协议） |
+| **manus** | `GET api.manus.im/api/v1/agents` |
+| **chatgpt** | `GET /backend-api/models`，失败回退抓首页 |
+| **claude** | `GET /api/organizations` + statsig chat-models 动态配置 |
+| **gemini** | 抓 gemini.google.com app HTML |
+| **grok** | 抓 grok.com 首页 HTML |
+| **mimo** | 抓 xiaomimo.com 首页 HTML |
+| **unified** | 按凭证里配置的 backend 过滤 `litellm.model_cost` |
+
+每个发现器都是软失败 —— 拿不到就返回 `[]`，那个 provider 的模型在 `/v1/models` 里就不会出现。结果 cache 在 `~/.opentoken/model-catalog-cache.json`，TTL 6 小时。第一次启动后续请求几乎零延迟，凭证变更会自动失效缓存。
+
+**实测对比**（同一台机器，7 个已登录 provider）：
+
+| Provider | 旧硬编码数量 | 现 live 发现数量 | 差异 |
+|----------|-------------|----------------|------|
+| glm-intl | 2 | 14 | 多出 GLM-5.1 / GLM-5-Turbo / glm-4.7 / glm-4.6v / deep-research 等 |
+| qwen-cn | 5 | 6 | 多出 Qwen3.6-千问 / Qwen3.7-Max，对齐了新发布 |
+| doubao | 2 | 3 | 多出 doubao-thinking |
+| glm-cn | 2 | 1 | 实际只有 glm-5 在线（淘汰了 glm-4 系列） |
+| deepseek | 2 | 2 | 一致 |
+
+> 如果某个 provider 的 web 页面改版导致发现器抓不到，模型暂时不展示是**符合预期的诚实行为**。修发现器（更新 regex 或换 API 端点）是后续 PR 的事。
+
+---
+
 ## 最近的功能与稳定性改进
 
 - **新 provider：NVIDIA NIM**（`opentoken login nim --api-key nvapi-...`）+ 跨模型自动降级链。在 metadata 里配 `model_chain` 后，被 rate-limit 的模型会自动切到链表里的下一个，调用方完全无感。
