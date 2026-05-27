@@ -30,7 +30,7 @@ def save_provider_session(
     store = _load_store(path)
     store[_session_key(provider, credentials)] = dict(state)
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_json_atomic(path, store)
+    write_json_atomic(path, store, sensitive=True)
     return path
 
 

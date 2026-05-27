@@ -49,7 +49,7 @@ def file_lock(path: Path) -> Iterator[None]:
         handle.close()
 
 
-def write_json_atomic(path: Path, payload: object) -> None:
+def write_json_atomic(path: Path, payload: object, *, sensitive: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     serialized = json.dumps(payload, ensure_ascii=False, indent=2)
     tmp_path = path.with_name(path.name + ".tmp")
@@ -60,5 +60,13 @@ def write_json_atomic(path: Path, payload: object) -> None:
             os.fsync(fh.fileno())
         except OSError:
             # fsync isn't fatal — keep going.
+            pass
+    if sensitive:
+        # Files holding secrets (API key, provider cookies/tokens) must not be
+        # world-readable on a shared host. chmod the temp file before the rename
+        # so the final file is never briefly 0644.
+        try:
+            os.chmod(tmp_path, 0o600)
+        except OSError:
             pass
     os.replace(tmp_path, path)

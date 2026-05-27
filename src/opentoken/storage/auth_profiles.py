@@ -160,7 +160,7 @@ def _load_store(path: Path) -> dict[str, object]:
 
 def _save_store(path: Path, store: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_json_atomic(path, store)
+    write_json_atomic(path, store, sensitive=True)
 
 
 def _candidate_auth_profile_paths(providers_dir: Path) -> list[Path]:

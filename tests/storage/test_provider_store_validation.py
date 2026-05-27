@@ -79,3 +79,16 @@ def test_save_validator_exception_treated_as_fail(tmp_path):
     loaded = load_provider_credentials(tmp_path, "dummy")
     assert loaded is not None
     assert loaded.cookie == "sess=good"
+
+
+def test_saved_credentials_are_owner_only(tmp_path) -> None:
+    """Provider credential files contain cookies/tokens and must not be
+    world-readable on a shared host."""
+    import os
+    import stat
+
+    saved = save_provider_credentials(tmp_path, _record("dummy", "secret"))
+    assert saved is not None
+    mode = stat.S_IMODE(os.stat(saved).st_mode)
+    # Owner read/write only — no group/other bits.
+    assert mode & 0o077 == 0, f"credential file is too permissive: {oct(mode)}"

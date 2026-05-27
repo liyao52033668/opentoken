@@ -41,7 +41,7 @@ def save_provider_credentials(
         if not ok:
             return None
     target = _provider_path(state_dir, record.provider)
-    write_json_atomic(target, record.model_dump())
+    write_json_atomic(target, record.model_dump(), sensitive=True)
     save_auth_profile_record(state_dir, record)
     return target
 
