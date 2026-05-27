@@ -123,3 +123,46 @@ def test_provider_sessions_concurrent_saves_do_not_lose_updates(tmp_path) -> Non
     for p in providers:
         loaded = provider_sessions.load_provider_session(tmp_path, provider=p, credentials=creds(p))
         assert loaded.get("chat_id") == p
+
+
+def test_auth_profile_save_under_concurrent_load(tmp_path) -> None:
+    """save_auth_profile_record now locks its read-modify-write so concurrent
+    logins for different providers don't lose each other's profile."""
+    import threading
+
+    from opentoken.storage.auth_profiles import (
+        load_auth_profile_record,
+        save_auth_profile_record,
+    )
+
+    providers_dir = tmp_path / "providers"
+    providers_dir.mkdir(parents=True, exist_ok=True)
+
+    providers = [f"prov{i}" for i in range(10)]
+    barrier = threading.Barrier(len(providers))
+
+    def worker(provider: str) -> None:
+        barrier.wait()
+        save_auth_profile_record(
+            providers_dir,
+            ProviderCredentialRecord(
+                provider=provider,
+                kind="web_session",
+                cookie=f"c-{provider}",
+                headers={},
+                user_agent="ua",
+                metadata={},
+                status="valid",
+            ),
+        )
+
+    threads = [threading.Thread(target=worker, args=(p,)) for p in providers]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    for p in providers:
+        loaded = load_auth_profile_record(providers_dir, p)
+        assert loaded is not None, f"lost auth profile for {p}"
+        assert loaded.cookie == f"c-{p}"

@@ -4,7 +4,7 @@ import copy
 import json
 from pathlib import Path
 
-from opentoken.storage._atomic import write_json_atomic
+from opentoken.storage._atomic import file_lock, write_json_atomic
 from opentoken.config.paths import resolve_state_dir
 from opentoken.models.provider_credentials import ProviderCredentialRecord
 
@@ -80,50 +80,47 @@ def list_auth_profile_records(providers_dir: Path) -> list[ProviderCredentialRec
 def save_auth_profile_record(providers_dir: Path, record: ProviderCredentialRecord) -> Path:
     saved_path: Path | None = None
     for path in _candidate_auth_profile_paths(providers_dir):
-        store = _load_store(path)
-        profiles = store.setdefault("profiles", {})
-        if not isinstance(profiles, dict):
-            profiles = {}
-            store["profiles"] = profiles
-        profiles[f"{record.provider}:default"] = {
-            "type": "token",
-            "provider": record.provider,
-            "token": record.model_dump_json(),
-        }
-        _save_store(path, store)
+        # Lock per-store so concurrent logins for different providers don't lose
+        # each other's profile when both read-modify-write the same file.
+        with file_lock(path):
+            store = _load_store(path)
+            profiles = store.setdefault("profiles", {})
+            if not isinstance(profiles, dict):
+                profiles = {}
+                store["profiles"] = profiles
+            profiles[f"{record.provider}:default"] = {
+                "type": "token",
+                "provider": record.provider,
+                "token": record.model_dump_json(),
+            }
+            _save_store(path, store)
         if saved_path is None:
             saved_path = path
     return saved_path or resolve_auth_profiles_path(providers_dir)
 
 
 def delete_auth_profile_record(providers_dir: Path, provider: str) -> bool:
-    to_delete = [
-        (
-            path,
-            [
+    deleted = False
+    for path in _candidate_auth_profile_paths(providers_dir):
+        # Re-read inside the lock so we delete from the current store, not a
+        # stale snapshot, and don't clobber a concurrent writer's changes.
+        with file_lock(path):
+            store = _load_store(path)
+            profiles = store.get("profiles", {})
+            if not isinstance(profiles, dict):
+                continue
+            profile_ids = [
                 profile_id
                 for profile_id, raw in profiles.items()
                 if profile_id == f"{provider}:default"
                 or (isinstance(raw, dict) and str(raw.get("provider", "")).strip() == provider)
-            ],
-        )
-        for path in _candidate_auth_profile_paths(providers_dir)
-        for store in [_load_store(path)]
-        for profiles in [store.get("profiles", {})]
-        if isinstance(profiles, dict)
-    ]
-    deleted = False
-    for path, profile_ids in to_delete:
-        if not profile_ids:
-            continue
-        store = _load_store(path)
-        profiles = store.get("profiles", {})
-        if not isinstance(profiles, dict):
-            continue
-        for profile_id in profile_ids:
-            profiles.pop(profile_id, None)
-        _save_store(path, store)
-        deleted = True
+            ]
+            if not profile_ids:
+                continue
+            for profile_id in profile_ids:
+                profiles.pop(profile_id, None)
+            _save_store(path, store)
+            deleted = True
     return deleted
 
 
