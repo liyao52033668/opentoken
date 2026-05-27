@@ -12,7 +12,7 @@ from opentoken.gateway.normalized import NormalizedChatRequest
 from opentoken.models.model_aliases import normalize_provider_model
 from opentoken.models.provider_credentials import ProviderCredentialRecord
 from opentoken.providers._client_cache import BoundedClientCache
-from opentoken.providers.base import ChatResponse, ProviderAdapter
+from opentoken.providers.base import ChatResponse, ProviderAdapter, raise_for_provider_auth
 from opentoken.providers.prompts import build_role_prompt
 from opentoken.providers.web_tool_calling import (
     build_web_tool_prompt,
@@ -110,6 +110,9 @@ class GrokApiClient:
                     },
                 )
 
+        raise_for_provider_auth(
+            response.status_code, provider="Grok", login_command="opentoken login grok"
+        )
         response.raise_for_status()
         content = _parse_grok_sse_text(response.text)
         if not content:
@@ -157,9 +160,15 @@ class GrokApiClient:
                         "deepsearchPreset": "",
                     },
                 ) as retry:
+                    raise_for_provider_auth(
+                        retry.status_code, provider="Grok", login_command="opentoken login grok"
+                    )
                     retry.raise_for_status()
                     yield from _iter_grok_sse_text(retry.iter_lines())
                     return
+            raise_for_provider_auth(
+                response.status_code, provider="Grok", login_command="opentoken login grok"
+            )
             response.raise_for_status()
             yield from _iter_grok_sse_text(response.iter_lines())
 

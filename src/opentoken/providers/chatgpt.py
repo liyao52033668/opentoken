@@ -14,7 +14,7 @@ from opentoken.gateway.normalized import NormalizedChatRequest
 from opentoken.models.model_aliases import normalize_provider_model
 from opentoken.models.provider_credentials import ProviderCredentialRecord
 from opentoken.providers._client_cache import BoundedClientCache
-from opentoken.providers.base import ChatResponse, ProviderAdapter
+from opentoken.providers.base import ChatResponse, ProviderAdapter, raise_for_provider_auth
 from opentoken.providers.prompts import build_role_prompt
 from opentoken.storage.provider_sessions import load_provider_session, save_provider_session
 from opentoken.providers.web_tool_calling import (
@@ -91,6 +91,9 @@ class ChatGPTApiClient:
                 json=self._build_payload(message=message, model=model, conversation_id=None),
             )
 
+        raise_for_provider_auth(
+            response.status_code, provider="ChatGPT", login_command="opentoken login chatgpt"
+        )
         response.raise_for_status()
         content = _parse_chatgpt_sse_text(response.text)
 
@@ -134,6 +137,9 @@ class ChatGPTApiClient:
                     allow_retry=False,
                 )
                 return
+            raise_for_provider_auth(
+                response.status_code, provider="ChatGPT", login_command="opentoken login chatgpt"
+            )
             response.raise_for_status()
             self._extract_conversation_id(response.headers.get("x-conversation-id"))
 
