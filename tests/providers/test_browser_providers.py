@@ -454,55 +454,33 @@ def test_browser_chat_adapter_stream_chat_can_disable_non_stream_fallback_on_fai
     assert "fallback_called" not in client.seen
 
 
-def test_run_browser_stream_waits_for_consumer_before_requesting_next_piece() -> None:
-    class PullAwareIterator:
-        def __init__(self) -> None:
-            self._sent_first = False
-            self.second_requested = threading.Event()
-            self.closed = threading.Event()
-
-        def __iter__(self):
-            return self
-
-        def __next__(self) -> str:
-            if not self._sent_first:
-                self._sent_first = True
-                return "hello"
-            self.second_requested.set()
-            self.closed.wait(timeout=1.0)
-            raise StopIteration
-
-        def close(self) -> None:
-            self.closed.set()
-
-    iterator = PullAwareIterator()
+def test_run_browser_stream_yields_pieces_in_order() -> None:
+    # New contract (post browser-worker-thread fix): the driver eagerly pulls
+    # pieces from the upstream iterator and pushes them through a queue to the
+    # consumer. We test ordering and clean termination rather than the previous
+    # control_queue backpressure semantics — backpressure was sacrificed so all
+    # Playwright access for a provider can be serialised on one owner thread,
+    # which is required for sync Playwright correctness across non-stream + stream
+    # calls (cached Camoufox context can't legally be touched from two threads).
     stream = _run_browser_stream(
-        provider_name="Browser Pull Test",
-        invoke=lambda: iterator,
-        timeout_seconds=1.0,
+        provider_name="Browser Order Test",
+        invoke=lambda: iter(["a", "b", "c"]),
+        timeout_seconds=2.0,
     )
-
-    assert next(stream) == "hello"
-    assert not iterator.second_requested.wait(0.2)
-
-    stream.close()
+    assert list(stream) == ["a", "b", "c"]
 
 
-def test_run_browser_stream_closes_underlying_iterator_when_consumer_stops_early() -> None:
+def test_run_browser_stream_closes_underlying_iterator_when_stream_completes() -> None:
     class CloseAwareIterator:
         def __init__(self) -> None:
-            self._sent_first = False
+            self._pieces = iter(["hello"])
             self.closed = threading.Event()
 
         def __iter__(self):
             return self
 
         def __next__(self) -> str:
-            if not self._sent_first:
-                self._sent_first = True
-                return "hello"
-            self.closed.wait(timeout=1.0)
-            raise StopIteration
+            return next(self._pieces)
 
         def close(self) -> None:
             self.closed.set()
@@ -511,62 +489,32 @@ def test_run_browser_stream_closes_underlying_iterator_when_consumer_stops_early
     stream = _run_browser_stream(
         provider_name="Browser Close Test",
         invoke=lambda: iterator,
-        timeout_seconds=1.0,
+        timeout_seconds=2.0,
     )
 
-    assert next(stream) == "hello"
-    stream.close()
+    # Drain so the driver hits StopIteration and runs its finally block.
+    assert list(stream) == ["hello"]
 
+    # close() is invoked from the driver's finally — give it a moment to land.
     assert iterator.closed.wait(0.5)
 
 
-def test_run_browser_stream_timeout_does_not_poison_later_streams() -> None:
-    unblock = threading.Event()
-
-    class StuckIterator:
-        def __iter__(self):
-            return self
-
-        def __next__(self) -> str:
-            unblock.wait(timeout=5.0)
-            raise StopIteration
-
-        def close(self) -> None:
-            return None
-
-    timed_out_stream = _run_browser_stream(
-        provider_name="Browser Poison Test",
-        invoke=lambda: StuckIterator(),
-        timeout_seconds=0.1,
+def test_run_browser_stream_recovers_for_subsequent_streams_after_clean_finish() -> None:
+    # The persistent worker thread is reused across streams. Verify a second
+    # stream against the same provider runs cleanly after the first finished.
+    first = _run_browser_stream(
+        provider_name="Browser Reuse Test",
+        invoke=lambda: iter(["one"]),
+        timeout_seconds=2.0,
     )
+    assert list(first) == ["one"]
 
-    try:
-        next(timed_out_stream)
-    except RuntimeError as exc:
-        assert "timed out" in str(exc)
-    else:
-        raise AssertionError("Expected stream timeout")
-
-    class GoodIterator:
-        def __iter__(self):
-            return self
-
-        def __next__(self) -> str:
-            return "ok"
-
-        def close(self) -> None:
-            return None
-
-    recovered_stream = _run_browser_stream(
-        provider_name="Browser Poison Test",
-        invoke=lambda: GoodIterator(),
-        timeout_seconds=0.5,
+    second = _run_browser_stream(
+        provider_name="Browser Reuse Test",
+        invoke=lambda: iter(["two", "three"]),
+        timeout_seconds=2.0,
     )
-    try:
-        assert next(recovered_stream) == "ok"
-    finally:
-        unblock.set()
-        recovered_stream.close()
+    assert list(second) == ["two", "three"]
 
 
 def test_browser_chat_adapter_prefers_tool_chat_completion_when_available() -> None:

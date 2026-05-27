@@ -253,11 +253,20 @@ def _run_browser_stream(
     invoke: Callable[[], object],
     timeout_seconds: float = 300.0,
 ):
+    # CRITICAL: the streaming driver must run on the SAME persistent worker thread
+    # that _run_browser_completion uses. Playwright's sync API binds its objects to
+    # the thread that created them, and the per-provider browser client is cached
+    # across requests. If streaming ran on its own ad-hoc thread (as it used to),
+    # the cached Playwright context would be touched from a second thread, and the
+    # next non-streaming call back on the worker thread would blow up with
+    # "Playwright Sync API inside the asyncio loop". Routing the whole stream
+    # consumption through the worker keeps every Playwright access serialized on one
+    # owner thread.
+    worker = _get_or_create_worker(provider_name)
     stream_queue: queue.Queue[tuple[str, object | None]] = queue.Queue()
-    control_queue: queue.Queue[str] = queue.Queue()
     cancel_event = threading.Event()
 
-    def task() -> str:
+    def driver() -> str:
         iterator = None
         terminal_sent = False
         try:
@@ -266,21 +275,14 @@ def _run_browser_stream(
                 raise RuntimeError(f"{provider_name} browser stream is unavailable.")
             iterator = iter(iterator)
             while not cancel_event.is_set():
-                command = control_queue.get()
-                if command == "cancel":
+                try:
+                    piece = next(iterator)
+                except StopIteration:
                     break
-                if command != "next":
-                    continue
-                while not cancel_event.is_set():
-                    try:
-                        piece = next(iterator)
-                    except StopIteration:
-                        stream_queue.put(("done", None))
-                        terminal_sent = True
-                        return ""
-                    if piece:
-                        stream_queue.put(("piece", str(piece)))
-                        break
+                if piece:
+                    stream_queue.put(("piece", str(piece)))
+            stream_queue.put(("done", None))
+            terminal_sent = True
         except BaseException as exc:
             stream_queue.put(("error", exc))
             terminal_sent = True
@@ -297,14 +299,13 @@ def _run_browser_stream(
                 stream_queue.put(("done", None))
         return ""
 
-    threading.Thread(
-        target=task,
-        name=f"opentoken-browser-stream-{provider_name.lower().replace(' ', '-')}",
-        daemon=True,
-    ).start()
+    # Submit the driver to the persistent worker. We don't read the result queue —
+    # the driver communicates exclusively through stream_queue; the worker is freed
+    # for the next task as soon as driver() returns.
+    result_queue: queue.Queue[tuple[bool, object]] = queue.Queue(maxsize=1)
+    worker.task_queue.put((driver, result_queue))
 
     def generator():
-        control_queue.put("next")
         try:
             while True:
                 try:
@@ -315,7 +316,6 @@ def _run_browser_stream(
                     ) from exc
                 if kind == "piece":
                     yield str(payload or "")
-                    control_queue.put("next")
                     continue
                 if kind == "error":
                     if isinstance(payload, RuntimeError):
@@ -325,8 +325,10 @@ def _run_browser_stream(
                     raise RuntimeError(f"{provider_name} browser stream failed.")
                 return
         finally:
+            # If the consumer abandons the generator early (client disconnect), tell
+            # the driver to stop at the next piece boundary so the worker thread is
+            # released promptly.
             cancel_event.set()
-            control_queue.put("cancel")
 
     return generator()
 def _iter_text_chunks(content: str, *, max_chunk_len: int = 16):
