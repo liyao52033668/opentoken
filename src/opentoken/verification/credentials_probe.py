@@ -18,16 +18,28 @@ import httpx
 from opentoken.models.provider_credentials import ProviderCredentialRecord
 
 
-# Each tuple is (URL to GET, list of cookie-relevant status codes that mean
-# "authenticated"). Anything else (4xx auth errors, 5xx) is treated as fail.
+# Each tuple is (URL to GET, status codes that mean "authenticated"). Anything
+# else (4xx auth errors, 5xx) is treated as fail.
+#
+# Deliberately conservative: a probe is only listed here if (a) the endpoint
+# genuinely requires auth (so a 200 actually proves the credential works) AND
+# (b) it accepts the SAME credential material the chat path uses. A probe that
+# is stricter than the chat endpoint would false-reject a valid harvest and
+# block the user from re-logging in — worse than having no probe at all. So
+# unverified / homepage-style endpoints are intentionally omitted: those
+# providers fall through to "trust the harvest" (probe_credentials returns
+# True) rather than risk a false rejection.
+#
+# Verified entries:
+#   - claude /api/organizations: returns 401/403 cookie-less, 200 with a valid
+#     sessionKey cookie (the same cookie the completion endpoint uses).
+#
+# Omitted on purpose (and why):
+#   - deepseek/gemini homepages always return 200 regardless of auth -> useless.
+#   - kimi /api/user needs a Bearer token the cookie-only harvest may not have
+#     -> would false-reject. qwen/glm /users/me endpoints are unverified.
 _PROVIDER_PROBE_URLS: dict[str, tuple[str, tuple[int, ...]]] = {
     "claude": ("https://claude.ai/api/organizations", (200,)),
-    "deepseek": ("https://chat.deepseek.com/", (200,)),
-    "kimi": ("https://kimi.com/api/user", (200,)),
-    "qwen-intl": ("https://chat.qwen.ai/api/v1/users/me", (200,)),
-    "qwen-cn": ("https://chat2.qianwen.com/api/v1/users/me", (200,)),
-    "glm-intl": ("https://chat.z.ai/api/user", (200,)),
-    "gemini": ("https://gemini.google.com/app", (200,)),
 }
 
 
