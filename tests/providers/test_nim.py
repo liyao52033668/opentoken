@@ -63,6 +63,81 @@ def test_nim_chat_returns_first_choice():
     assert response.finish_reason == "stop"
 
 
+def test_nim_stream_wraps_reasoning_deltas_with_think_tags():
+    """Reasoning models stream their chain of thought as delta.reasoning_content
+    BEFORE the answer arrives in delta.content. Open <think> on the first
+    reasoning delta, close it on the first content delta. Balanced span so the
+    projector treats it correctly."""
+
+    def handler(request):
+        body = "\n".join(
+            f"data: {chunk}"
+            for chunk in [
+                '{"choices":[{"delta":{"reasoning_content":"step1"}}]}',
+                '{"choices":[{"delta":{"reasoning_content":" step2"}}]}',
+                '{"choices":[{"delta":{"content":"answer"}}]}',
+                '{"choices":[{"delta":{"content":" more"}}]}',
+                "[DONE]",
+            ]
+        ) + "\n"
+        return httpx.Response(200, content=body.encode(), headers={"content-type": "text/event-stream"})
+
+    transport = httpx.MockTransport(handler)
+    adapter = NimChatAdapter(
+        client_factory=lambda credentials: httpx.Client(transport=transport, trust_env=False)
+    )
+    pieces = list(adapter.stream_chat(_request(), _credentials()) or ())
+    assert pieces == ["<think>", "step1", " step2", "</think>", "answer", " more"]
+
+
+def test_nim_stream_closes_unfinished_think_span():
+    """If the stream ends mid-reasoning (truncation / abort), the <think>
+    open emitted earlier must still get its </think>, or the projector will
+    treat the rest of the response as hidden."""
+
+    def handler(request):
+        body = (
+            'data: {"choices":[{"delta":{"reasoning_content":"abrupt"}}]}\n'
+            'data: [DONE]\n'
+        )
+        return httpx.Response(200, content=body.encode(), headers={"content-type": "text/event-stream"})
+
+    transport = httpx.MockTransport(handler)
+    adapter = NimChatAdapter(
+        client_factory=lambda credentials: httpx.Client(transport=transport, trust_env=False)
+    )
+    pieces = list(adapter.stream_chat(_request(), _credentials()) or ())
+    assert pieces == ["<think>", "abrupt", "</think>"]
+
+
+def test_nim_chat_wraps_reasoning_content_in_think_tags():
+    # DeepSeek R1 / NIM reasoning models put their chain of thought in
+    # message.reasoning_content. The gateway should preserve it (wrapped in
+    # <think>) instead of silently dropping it.
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "answer",
+                            "reasoning_content": "step 1\nstep 2",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ]
+            },
+        )
+    )
+    adapter = NimChatAdapter(
+        client_factory=lambda credentials: httpx.Client(transport=transport, trust_env=False)
+    )
+    response = adapter.chat(_request(), _credentials())
+    assert response.content == "<think>step 1\nstep 2</think>answer"
+
+
 def test_nim_chat_raises_provider_rate_limit_on_429():
     transport = httpx.MockTransport(lambda request: httpx.Response(429, text="rate-limited"))
     adapter = NimChatAdapter(

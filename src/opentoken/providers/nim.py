@@ -185,6 +185,14 @@ class NimChatAdapter(ProviderAdapter):
         choice = choices[0] if isinstance(choices[0], dict) else {}
         message = choice.get("message") or {}
         content = str(message.get("content") or "")
+        # NIM serves DeepSeek R1 and other reasoning models that emit their chain
+        # of thought separately in message.reasoning_content. Wrap it in <think>
+        # so the gateway's existing protocol-markup machinery treats it as
+        # reasoning (preserved on reasoning streams, stripped when not requested),
+        # rather than silently dropping the whole reasoning trace.
+        reasoning = str(message.get("reasoning_content") or "")
+        if reasoning:
+            content = f"<think>{reasoning}</think>{content}"
         raw_tool_calls = message.get("tool_calls") or []
         tool_calls = raw_tool_calls if isinstance(raw_tool_calls, list) else []
         finish_reason = str(choice.get("finish_reason") or "stop")
@@ -218,7 +226,15 @@ def _stream_nim_chunks(
     headers: dict[str, str],
     payload: dict[str, Any],
 ) -> Iterator[str]:
-    """Yield only the content deltas from NIM's OpenAI-compatible SSE stream."""
+    """Yield content deltas from NIM's OpenAI-compatible SSE stream.
+
+    Reasoning models (DeepSeek R1 etc.) emit their chain of thought in
+    delta.reasoning_content before the answer arrives in delta.content. We
+    surface the reasoning wrapped in a single <think>…</think> span so the
+    downstream projector can preserve or strip it consistently, then stream the
+    answer content as normal.
+    """
+    in_reasoning = False
     with client.stream("POST", url, headers=headers, json=payload) as response:
         if response.status_code == 429:
             raise ProviderRateLimitError("NIM rate-limited during streaming chat.")
@@ -229,7 +245,7 @@ def _stream_nim_chunks(
                 continue
             data = line[5:].strip()
             if data == "[DONE]":
-                return
+                break
             try:
                 chunk = json.loads(data)
             except json.JSONDecodeError:
@@ -241,6 +257,19 @@ def _stream_nim_chunks(
             if not isinstance(first, dict):
                 continue
             delta = first.get("delta") if isinstance(first.get("delta"), dict) else {}
+            reasoning = delta.get("reasoning_content")
+            if isinstance(reasoning, str) and reasoning:
+                if not in_reasoning:
+                    yield "<think>"
+                    in_reasoning = True
+                yield reasoning
             content = delta.get("content")
             if isinstance(content, str) and content:
+                if in_reasoning:
+                    yield "</think>"
+                    in_reasoning = False
                 yield content
+    # Reasoning that never transitioned to content (truncated/aborted) still
+    # needs its think span closed so the markup stays balanced.
+    if in_reasoning:
+        yield "</think>"
