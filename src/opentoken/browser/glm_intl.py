@@ -41,8 +41,8 @@ def capture_glm_intl_browser_credentials(*, state_dir: Path) -> dict[str, str]:
             )
             user_agent = page.evaluate("() => navigator.userAgent")
 
-            deadline = time.time() + 600
-            while time.time() < deadline:
+            deadline = time.monotonic() + 600
+            while time.monotonic() < deadline:
                 cookies = context.cookies(["https://chat.z.ai"])
                 cookie_string = build_cookie_string(cookies)
                 cookie_names = {str(item["name"]).lower() for item in cookies}

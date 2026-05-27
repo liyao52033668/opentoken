@@ -97,8 +97,8 @@ class ManusApiClient:
 
     def chat_completion(self, *, message: str, model: str, conversation_id: str | None = None) -> str:
         task_id = self.create_task(message=message, model=model, conversation_id=conversation_id)
-        deadline = time.time() + self._max_poll_seconds
-        while time.time() < deadline:
+        deadline = time.monotonic() + self._max_poll_seconds
+        while time.monotonic() < deadline:
             task = self.get_task(task_id)
             status = str(task.get("status", ""))
             if status == "completed":
@@ -119,9 +119,9 @@ class ManusApiClient:
         conversation_id: str | None = None,
     ) -> Iterator[str]:
         task_id = self.create_task(message=message, model=model, conversation_id=conversation_id)
-        deadline = time.time() + self._max_poll_seconds
+        deadline = time.monotonic() + self._max_poll_seconds
         emitted = ""
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             task = self.get_task(task_id)
             status = str(task.get("status", ""))
             content = _extract_manus_output_text(task)

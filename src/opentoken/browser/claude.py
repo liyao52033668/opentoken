@@ -40,8 +40,8 @@ def capture_claude_browser_credentials(*, state_dir: Path) -> dict[str, object]:
             page.goto("https://claude.ai/", wait_until="domcontentloaded")
             user_agent = page.evaluate("() => navigator.userAgent")
 
-            deadline = time.time() + 300
-            while time.time() < deadline:
+            deadline = time.monotonic() + 300
+            while time.monotonic() < deadline:
                 cookies = context.cookies(["https://claude.ai", "https://www.claude.ai"])
                 cookie_string = build_cookie_string(cookies)
 

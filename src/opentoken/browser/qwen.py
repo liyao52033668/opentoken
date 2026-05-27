@@ -42,8 +42,8 @@ def capture_qwen_browser_credentials(*, state_dir: Path) -> dict[str, str]:
             page.goto('https://chat.qwen.ai/', wait_until='domcontentloaded')
             user_agent = page.evaluate('() => navigator.userAgent')
 
-            deadline = time.time() + 300
-            while time.time() < deadline:
+            deadline = time.monotonic() + 300
+            while time.monotonic() < deadline:
                 cookies = context.cookies(['https://chat.qwen.ai', 'https://qwen.ai'])
                 cookie_string = build_cookie_string(cookies)
                 if cookie_string and session_token['value']:

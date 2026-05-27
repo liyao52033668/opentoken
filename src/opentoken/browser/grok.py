@@ -24,8 +24,8 @@ def capture_grok_browser_credentials(*, state_dir: Path) -> dict[str, str]:
             page.goto("https://grok.com", wait_until="domcontentloaded")
             user_agent = page.evaluate("() => navigator.userAgent")
 
-            deadline = time.time() + 300
-            while time.time() < deadline:
+            deadline = time.monotonic() + 300
+            while time.monotonic() < deadline:
                 cookies = context.cookies(["https://grok.com"])
                 cookie_string = build_cookie_string(cookies)
                 cookie_names = {str(item["name"]).lower() for item in cookies}

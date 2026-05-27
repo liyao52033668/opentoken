@@ -2455,8 +2455,8 @@ def _dom_send_and_wait_doubao(page, session: _ProviderBrowserSession, client: Ca
                 except Exception:
                     page.keyboard.press("Enter")
 
-            deadline = time.time() + 120
-            while time.time() < deadline:
+            deadline = time.monotonic() + 120
+            while time.monotonic() < deadline:
                 if captured_response is not None:
                     break
                 page.wait_for_timeout(250)
@@ -2709,9 +2709,9 @@ def _stream_doubao_browser_completion(
     captured_lines: list[str] = []
     current_event: str | None = None
     current_data: str | None = None
-    deadline = time.time() + timeout_seconds
+    deadline = time.monotonic() + timeout_seconds
     startup_deadline = (
-        time.time() + max(0.0, startup_timeout_seconds)
+        time.monotonic() + max(0.0, startup_timeout_seconds)
         if startup_timeout_seconds is not None
         else None
     )
@@ -2746,7 +2746,7 @@ def _stream_doubao_browser_completion(
                 yield suffix
 
     try:
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             snapshot = page.evaluate(
                 """
                 ({ streamId }) => {
@@ -2829,7 +2829,7 @@ def _stream_doubao_browser_completion(
                 error_detail = _extract_doubao_stream_error(partial_payload)
                 if error_detail:
                     raise RuntimeError(f"Doubao browser stream failed: {error_detail}")
-            if not saw_visible_piece and startup_deadline is not None and time.time() >= startup_deadline:
+            if not saw_visible_piece and startup_deadline is not None and time.monotonic() >= startup_deadline:
                 raise RuntimeError(
                     f"Doubao browser stream startup timed out after {startup_timeout_seconds:g}s"
                 )
@@ -2987,9 +2987,9 @@ def _stream_doubao_dom_completion(
     emitted = ""
     last_text = ""
     stable_rounds = 0
-    deadline = time.time() + timeout_seconds
+    deadline = time.monotonic() + timeout_seconds
     startup_deadline = (
-        time.time() + max(0.0, startup_timeout_seconds)
+        time.monotonic() + max(0.0, startup_timeout_seconds)
         if startup_timeout_seconds is not None
         else None
     )
@@ -3033,7 +3033,7 @@ def _stream_doubao_dom_completion(
             except Exception:
                 page.keyboard.press("Enter")
 
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             result = page.evaluate(
                 """
                 ({ beforeMarkdownCount, beforeMessageCount }) => {
@@ -3100,7 +3100,7 @@ def _stream_doubao_dom_completion(
                         raise RuntimeError(f"Doubao DOM stream failed: {error_detail}")
             if last_text and captured_response is not None and not result.get("composerBusy") and stable_rounds >= 1:
                 break
-            if startup_deadline is not None and time.time() >= startup_deadline:
+            if startup_deadline is not None and time.monotonic() >= startup_deadline:
                 raise RuntimeError(
                     f"Doubao DOM stream startup timed out after {startup_timeout_seconds:g}s"
                 )
@@ -3273,13 +3273,13 @@ def _stream_glm_cn_browser_completion(
     if not started.get("ok"):
         raise RuntimeError("GLM China browser stream failed to start.")
 
-    deadline = time.time() + timeout_seconds
+    deadline = time.monotonic() + timeout_seconds
     snapshot: dict[str, object] = {"lines": [], "done": False, "error": ""}
     emitted = ""
     saw_any_piece = False
 
     try:
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             snapshot = page.evaluate(
                 """
                 ({ streamId }) => {
@@ -3538,10 +3538,10 @@ def _dom_send_and_wait_qwen_cn(page, message: str) -> str:
     page.keyboard.type(message, delay=20)
     page.keyboard.press("Enter")
 
-    deadline = time.time() + 120
+    deadline = time.monotonic() + 120
     stable_rounds = 0
     last_text = ""
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         page.wait_for_timeout(2000)
         result = page.evaluate(
             """
@@ -3921,9 +3921,9 @@ def _stream_qwen_intl_dom_completion(
     last_answer = ""
     stable_rounds = 0
     saw_streaming = False
-    deadline = time.time() + timeout_seconds
+    deadline = time.monotonic() + timeout_seconds
 
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         snapshot = _capture_qwen_intl_dom_stream_state(page)
         answer_text = str(snapshot.get("answer_text") or "").strip()
         if answer_text:
@@ -4089,12 +4089,12 @@ def _stream_qwen_intl_browser_completion(
         raise RuntimeError("Qwen International browser stream failed to start.")
 
     projector = _QwenIntlStreamProjector()
-    deadline = time.time() + timeout_seconds
+    deadline = time.monotonic() + timeout_seconds
     snapshot: dict[str, object] = {"lines": [], "done": False, "error": ""}
     saw_any_piece = False
 
     try:
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             snapshot = page.evaluate(
                 """
                 ({ streamId }) => {
@@ -4317,10 +4317,10 @@ def _dom_send_and_wait_chatgpt(page, message: str) -> str:
         """,
         message,
     )
-    deadline = time.time() + 90
+    deadline = time.monotonic() + 90
     stable_rounds = 0
     last_text = ""
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         time.sleep(2)
         result = page.evaluate(
             """
@@ -4398,10 +4398,10 @@ def _dom_send_and_wait_gemini(page, message: str) -> str:
         """,
         message,
     )
-    deadline = time.time() + 120
+    deadline = time.monotonic() + 120
     stable_rounds = 0
     last_text = ""
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         time.sleep(2)
         result = page.evaluate(
             """
@@ -4490,10 +4490,10 @@ def _dom_send_and_wait_grok(page, message: str) -> str:
         """,
         message,
     )
-    deadline = time.time() + 90
+    deadline = time.monotonic() + 90
     stable_rounds = 0
     last_text = ""
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         time.sleep(2)
         result = page.evaluate(
             """
@@ -4585,8 +4585,8 @@ def _dom_send_and_wait_glm_cn(
         page.on("response", handle_response)
         try:
             page.keyboard.press("Enter")
-            deadline = time.time() + 180
-            while time.time() < deadline:
+            deadline = time.monotonic() + 180
+            while time.monotonic() < deadline:
                 if captured_response is not None:
                     break
                 page.wait_for_timeout(250)
@@ -4792,9 +4792,9 @@ def _stream_glm_intl_dom_completion(
     last_thinking = ""
     stable_rounds = 0
     saw_output = False
-    deadline = time.time() + timeout_seconds
+    deadline = time.monotonic() + timeout_seconds
 
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         snapshot = _capture_glm_intl_dom_stream_state(page)
         assistant_count = int(snapshot.get("assistant_count") or 0)
         answer_text = str(snapshot.get("answer_text") or "").strip()

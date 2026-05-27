@@ -26,8 +26,8 @@ def capture_gemini_browser_credentials(*, state_dir: Path) -> dict[str, str]:
             page.goto("https://gemini.google.com/app", wait_until="domcontentloaded")
             user_agent = page.evaluate("() => navigator.userAgent")
 
-            deadline = time.time() + 300
-            while time.time() < deadline:
+            deadline = time.monotonic() + 300
+            while time.monotonic() < deadline:
                 cookies = context.cookies(
                     [
                         "https://gemini.google.com",

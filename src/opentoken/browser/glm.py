@@ -52,11 +52,11 @@ def capture_glm_browser_credentials(*, state_dir: Path) -> dict[str, str]:
             print("Please login to GLM (智谱清言)...")
 
             # Poll for valid login cookies
-            deadline = time.time() + 600  # 10 min timeout
+            deadline = time.monotonic() + 600  # 10 min timeout
             last_token = ""
             stable_count = 0
 
-            while time.time() < deadline:
+            while time.monotonic() < deadline:
                 try:
                     cookies = context.cookies(["https://chatglm.cn"])
                     cookie_map = {c["name"]: c["value"] for c in cookies if "name" in c}

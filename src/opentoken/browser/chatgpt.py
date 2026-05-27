@@ -24,8 +24,8 @@ def capture_chatgpt_browser_credentials(*, state_dir: Path) -> dict[str, str]:
             page.goto('https://chatgpt.com/', wait_until='domcontentloaded')
             user_agent = page.evaluate('() => navigator.userAgent')
 
-            deadline = time.time() + 300
-            while time.time() < deadline:
+            deadline = time.monotonic() + 300
+            while time.monotonic() < deadline:
                 cookies = context.cookies(['https://chatgpt.com', 'https://chat.openai.com'])
                 cookie_string = build_cookie_string(cookies)
 

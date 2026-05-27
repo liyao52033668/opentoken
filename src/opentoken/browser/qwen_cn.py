@@ -24,8 +24,8 @@ def capture_qwen_cn_browser_credentials(*, state_dir: Path) -> dict[str, object]
             page.goto('https://www.qianwen.com/', wait_until='domcontentloaded')
             user_agent = page.evaluate('() => navigator.userAgent')
 
-            deadline = time.time() + 180
-            while time.time() < deadline:
+            deadline = time.monotonic() + 180
+            while time.monotonic() < deadline:
                 cookies = context.cookies(['https://www.qianwen.com', 'https://qianwen.com'])
                 cookie_string = build_cookie_string(cookies)
                 session_cookie = next(

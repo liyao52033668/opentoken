@@ -47,8 +47,8 @@ def capture_deepseek_browser_credentials(*, state_dir: Path) -> dict[str, str]:
             page.goto('https://chat.deepseek.com', wait_until='domcontentloaded')
             user_agent = page.evaluate('() => navigator.userAgent')
 
-            deadline = time.time() + 300
-            while time.time() < deadline:
+            deadline = time.monotonic() + 300
+            while time.monotonic() < deadline:
                 cookies = context.cookies(['https://chat.deepseek.com', 'https://deepseek.com'])
                 cookie_string = build_cookie_string(cookies)
 

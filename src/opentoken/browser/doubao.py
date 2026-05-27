@@ -49,8 +49,8 @@ def _capture_doubao_browser_credentials_with_factory(
             page.goto("https://www.doubao.com/chat/", wait_until="domcontentloaded")
             user_agent = page.evaluate("() => navigator.userAgent")
 
-            deadline = time.time() + 300
-            while time.time() < deadline:
+            deadline = time.monotonic() + 300
+            while time.monotonic() < deadline:
                 cookies = context.cookies(["https://www.doubao.com", "https://doubao.com"])
                 cookie_string = build_cookie_string(cookies)
                 sessionid_cookie = next((item for item in cookies if item["name"] == "sessionid"), None)
