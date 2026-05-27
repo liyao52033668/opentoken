@@ -72,6 +72,19 @@ def test_chunk_visible_text_preserves_complete_think_tag_boundaries() -> None:
     ]
 
 
+def test_projector_handles_tags_split_character_by_character() -> None:
+    """Incremental projector: feeding one character per push must reassemble
+    tags across the unparsed-tail boundary and yield the same final visible
+    text as a single batch projection (no chars lost or tags mis-split)."""
+    raw = '<think>reason</think><tool_call id="x" name="t">{}</tool_call>answer'
+    projector = ProtocolMarkupProjector()
+    out = "".join(projector.push(ch) for ch in raw)
+    assert out == "<think>reason</think>answer"
+    assert projector.visible_text == "<think>reason</think>answer"
+    # Equivalent to the one-shot projection.
+    assert strip_tool_protocol_markup(raw) == "<think>reason</think>answer"
+
+
 def test_project_emits_close_think_even_when_inner_hidden_tag_was_open() -> None:
     """Malformed nesting: a <tool_call> opens inside <think> and never closes
     before </think> fires. The visible region is "<think>a" + "</think>c"; the

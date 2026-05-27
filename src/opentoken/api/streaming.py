@@ -73,8 +73,24 @@ def chunk_visible_text(
 
 
 class ProtocolMarkupProjector:
+    """Stateful incremental projector. `push(piece)` returns just the new
+    visible delta, in O(piece + unparsed_tail) — NOT O(_raw_text). The previous
+    implementation re-projected the entire accumulated _raw_text on every
+    chunk (O(n²) over a stream), so long reasoning streams burned worker CPU
+    proportional to total length squared.
+    """
+
     def __init__(self, *, include_think: bool = True) -> None:
         self._include_think = include_think
+        self._visible_tags: set[str] = {_THINK_PROTOCOL_TAG} if include_think else set()
+        self._hidden_tags: set[str] = set(_BASE_HIDDEN_PROTOCOL_TAGS)
+        if not include_think:
+            self._hidden_tags.add(_THINK_PROTOCOL_TAG)
+        self._stack: list[tuple[str, bool]] = []
+        self._hidden_depth = 0
+        # Suffix of input not yet fully parsed — may contain a partial tag
+        # ("<thi" with no ">" yet) waiting for the next chunk to complete it.
+        self._unparsed_tail = ""
         self._raw_text = ""
         self._visible_text = ""
 
@@ -90,46 +106,48 @@ class ProtocolMarkupProjector:
         if not piece:
             return ""
         self._raw_text += piece
-        projected = _project_visible_protocol_text(self._raw_text, include_think=self._include_think)
-        common_prefix_len = _common_prefix_length(self._visible_text, projected)
-        delta = projected[common_prefix_len:]
-        self._visible_text = projected
+        buffer = self._unparsed_tail + piece
+        delta, self._hidden_depth, self._unparsed_tail = _advance_projection(
+            buffer,
+            stack=self._stack,
+            hidden_depth=self._hidden_depth,
+            visible_tags=self._visible_tags,
+            hidden_tags=self._hidden_tags,
+        )
+        self._visible_text += delta
         return delta
 
 
-def _common_prefix_length(left: str, right: str) -> int:
-    limit = min(len(left), len(right))
-    index = 0
-    while index < limit and left[index] == right[index]:
-        index += 1
-    return index
+def _advance_projection(
+    content: str,
+    *,
+    stack: list[tuple[str, bool]],
+    hidden_depth: int,
+    visible_tags: set[str],
+    hidden_tags: set[str],
+) -> tuple[str, int, str]:
+    """Process `content`, mutating `stack` in place, returning
+    (visible_text_emitted, new_hidden_depth, unparsed_tail).
 
+    unparsed_tail is the suffix containing a possibly-partial tag — callers
+    that are streaming should hold it for the next call; the one-shot
+    _project_visible_protocol_text wrapper discards it (matching the previous
+    batch behavior of dropping a trailing partial).
 
-def _project_visible_protocol_text(content: str, *, include_think: bool = True) -> str:
-    if not content:
-        return ""
-
+    Each stack entry is (tag_name, open_was_emitted). Tracking whether a tag's
+    OPEN was emitted lets us emit the matching CLOSE iff the open was shown,
+    keeping markup balanced under malformed nesting like
+    "<think>a<tool_call>b</think>c" (the </think> arrives while a dangling
+    hidden <tool_call> is still on the stack — without this, the </think>
+    was dropped and the visible output was an unbalanced "<think>ac").
+    """
     visible_parts: list[str] = []
-    # Each stack entry is (tag_name, open_was_emitted). Tracking whether a tag's
-    # OPEN was emitted lets us emit the matching CLOSE iff the open was shown —
-    # keeping markup balanced even under malformed nesting like
-    # "<think>a<tool_call>b</think>c", where the </think> arrives while a
-    # dangling hidden <tool_call> is still on the stack. The old code keyed the
-    # close on the current hidden state (was_hidden), so it dropped the
-    # </think> there and emitted an unbalanced "<think>ac".
-    stack: list[tuple[str, bool]] = []
-    hidden_depth = 0
     index = 0
-    visible_tags = {_THINK_PROTOCOL_TAG} if include_think else set()
-    hidden_tags = set(_BASE_HIDDEN_PROTOCOL_TAGS)
-    if not include_think:
-        hidden_tags.add(_THINK_PROTOCOL_TAG)
-
     while index < len(content):
         if content[index] == "<":
             matched_tag = _match_protocol_tag(content, index)
             if matched_tag == "partial":
-                break
+                return "".join(visible_parts), hidden_depth, content[index:]
             if matched_tag is not None:
                 tag_name, is_closing, next_index, raw_tag = matched_tag
                 if is_closing:
@@ -157,8 +175,28 @@ def _project_visible_protocol_text(content: str, *, include_think: bool = True) 
         if hidden_depth == 0:
             visible_parts.append(content[index])
         index += 1
+    return "".join(visible_parts), hidden_depth, ""
 
-    return "".join(visible_parts)
+
+def _project_visible_protocol_text(content: str, *, include_think: bool = True) -> str:
+    """One-shot projection: process the whole content and discard any trailing
+    partial tag (preserves the old batch semantics that `<thi` with no `>` was
+    simply dropped from the visible output)."""
+    if not content:
+        return ""
+    stack: list[tuple[str, bool]] = []
+    visible_tags = {_THINK_PROTOCOL_TAG} if include_think else set()
+    hidden_tags = set(_BASE_HIDDEN_PROTOCOL_TAGS)
+    if not include_think:
+        hidden_tags.add(_THINK_PROTOCOL_TAG)
+    visible, _hidden_depth, _tail = _advance_projection(
+        content,
+        stack=stack,
+        hidden_depth=0,
+        visible_tags=visible_tags,
+        hidden_tags=hidden_tags,
+    )
+    return visible
 
 
 def _chunk_plain_text(content: str, *, max_chunk_len: int = 12) -> list[str]:
