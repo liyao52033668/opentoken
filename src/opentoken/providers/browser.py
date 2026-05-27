@@ -139,9 +139,19 @@ class BrowserChatAdapter(ProviderAdapter):
                         emitted_any = True
                         yield piece
             except Exception as exc:
-                emitted_any = False
+                # IMPORTANT: do NOT reset emitted_any here. If the stream already
+                # yielded pieces to the consumer and then errored, those bytes are
+                # gone — re-running the non-stream fallback would duplicate the
+                # entire answer on top of the partial stream. We can only fall
+                # back when NOTHING was emitted.
                 stream_error = exc
             if emitted_any:
+                # Partial output already delivered. If the stream errored after
+                # emitting, surface the error (the SSE layer turns it into an
+                # error event); we cannot un-send the partial content, and we
+                # must not replay it via the fallback.
+                if stream_error is not None:
+                    raise stream_error
                 return
             if not self._fallback_to_non_stream_chat_on_stream_failure:
                 if stream_error is not None:

@@ -635,3 +635,64 @@ def test_browser_chat_adapter_runs_tool_chat_completion_on_browser_worker(
 
     assert response.finish_reason == "tool_calls"
     assert calls == ["Doubao"]
+
+
+def test_browser_chat_adapter_does_not_replay_full_answer_after_partial_stream_error() -> None:
+    """If the stream emits some pieces and then errors, the adapter must NOT
+    re-run the non-stream completion as a fallback — that would deliver the
+    full answer on top of the partial stream the consumer already received.
+    Round-36 regression: the `except` block used to reset emitted_any=False,
+    which falsely re-armed the fallback path."""
+    credentials = ProviderCredentialRecord(
+        provider="doubao",
+        kind="browser_session",
+        cookie="session=value",
+        headers={},
+        user_agent="ua",
+        metadata={},
+        status="valid",
+    )
+
+    fallback_calls = {"count": 0}
+
+    class PartialThenErrorClient(FakeBrowserClient):
+        def stream_chat_completion(self, *, message: str, model: str):
+            yield "partial-"
+            yield "stream-"
+            raise RuntimeError("upstream blew up mid-stream")
+
+        def chat_completion(self, *, message: str, model: str) -> str:
+            fallback_calls["count"] += 1
+            return "full re-run answer"
+
+    adapter = BrowserChatAdapter(
+        provider_name="Doubao",
+        login_hint="opentoken login doubao",
+        client_factory=lambda _: PartialThenErrorClient(),
+        # The adapter's per-provider knob defaults to True (Doubao keeps it off
+        # in router defaults). Force it on so we'd exercise the fallback path
+        # if the bug regressed.
+        fallback_to_non_stream_chat_on_stream_failure=True,
+    )
+
+    request = NormalizedChatRequest(
+        model="algae/doubao/doubao-seed-2.0",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+    stream = adapter.stream_chat(request, credentials)
+    assert stream is not None
+    emitted: list[str] = []
+    raised: Exception | None = None
+    try:
+        for piece in stream:
+            emitted.append(piece)
+    except RuntimeError as exc:
+        raised = exc
+
+    # Partial pieces were delivered; the mid-stream error surfaced; the
+    # non-stream fallback was NOT invoked (would have duplicated content).
+    assert emitted == ["partial-", "stream-"]
+    assert raised is not None
+    assert "upstream blew up mid-stream" in str(raised)
+    assert fallback_calls["count"] == 0
