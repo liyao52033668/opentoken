@@ -2184,3 +2184,16 @@ def test_glm_cn_chat_maps_429_to_rate_limit_error() -> None:
     )
     with pytest.raises(ProviderRateLimitError):
         client.chat_completion(message="hi", model="glm-4-plus")
+
+
+def test_qwen_error_from_json_body_detects_failure_envelope() -> None:
+    from opentoken.providers.qwen import _qwen_error_from_json_body
+
+    # An explicit success=False envelope becomes an error message.
+    msg = _qwen_error_from_json_body('{"success":false,"errorMsg":"quota exceeded"}')
+    assert msg is not None and "quota exceeded" in msg
+
+    # Plain text / non-failure JSON is left alone (returns None → still yielded).
+    assert _qwen_error_from_json_body("just a plain answer") is None
+    assert _qwen_error_from_json_body('{"success":true,"data":{}}') is None
+    assert _qwen_error_from_json_body("") is None

@@ -191,6 +191,13 @@ class QwenApiClient:
                         return
                     response.raise_for_status()
                     if body:
+                        # A non-SSE 200 from a streaming endpoint is usually a
+                        # JSON status/error envelope, not the answer. Don't dump
+                        # a {"success":false,...} body to the client as model
+                        # output — surface it as an error instead.
+                        error_text = _qwen_error_from_json_body(body)
+                        if error_text is not None:
+                            raise RuntimeError(error_text)
                         yield body
                     return
                 response.raise_for_status()
@@ -660,6 +667,33 @@ def _qwen_payload_requires_fresh_chat(*, status_code: int, content_type: str, bo
 
 
 # ── SSE Parsing ───────────────────────────────────────────────────────────────
+
+def _qwen_error_from_json_body(body: str) -> str | None:
+    """If a non-SSE body is a JSON envelope explicitly signalling failure,
+    return an error message; otherwise None (so a genuine plain-text body is
+    still yielded as content). Only fires on an explicit success=False so it
+    can't swallow real answers."""
+    stripped = body.strip()
+    if not stripped.startswith("{"):
+        return None
+    try:
+        data = json.loads(stripped)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if data.get("success") is False:
+        msg = str(
+            data.get("errorMsg")
+            or data.get("errMsg")
+            or data.get("msg")
+            or data.get("message")
+            or data.get("errorCode")
+            or "request failed"
+        ).strip()
+        return f"Qwen upstream error: {msg}"
+    return None
+
 
 def _parse_qwen_sse_text(payload: str) -> str:
     """Parse Qwen International SSE response."""

@@ -8,6 +8,16 @@ from opentoken.storage._atomic import file_lock, write_json_atomic
 from opentoken.models.provider_credentials import ProviderCredentialRecord
 
 
+# Cap the session store. The key embeds a credential fingerprint, so each
+# re-login (fresh cookie → new fingerprint) adds a new entry and the old one is
+# never reclaimed — the file grew without bound. Keep the most-recently-written
+# entries (insertion/update order) and evict the oldest beyond the cap; the
+# only state here is short-lived conversation context, so an evicted entry just
+# means a fresh conversation next time. (response_store is capped for the same
+# reason.)
+_MAX_SESSION_ENTRIES = 256
+
+
 def load_provider_session(
     state_dir: Path,
     *,
@@ -33,7 +43,14 @@ def save_provider_session(
     # back only its own key). file_store/response_store already do this.
     with file_lock(path):
         store = _load_store(path)
-        store[_session_key(provider, credentials)] = dict(state)
+        key = _session_key(provider, credentials)
+        # Re-insert at the end so this key counts as most-recent (dicts preserve
+        # insertion order); then evict the oldest entries beyond the cap.
+        store.pop(key, None)
+        store[key] = dict(state)
+        if len(store) > _MAX_SESSION_ENTRIES:
+            for stale_key in list(store.keys())[: len(store) - _MAX_SESSION_ENTRIES]:
+                store.pop(stale_key, None)
         write_json_atomic(path, store, sensitive=True)
     return path
 
