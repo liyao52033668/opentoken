@@ -869,3 +869,43 @@ def _parse_named_sse(body: str) -> list[tuple[str, dict[str, object]]]:
         if event_name and data:
             events.append((event_name, json.loads(data)))
     return events
+
+
+def test_responses_stream_error_event_uses_flat_openai_responses_shape(monkeypatch) -> None:
+    """OpenAI's Responses SSE "error" event carries flat top-level fields
+    (type/code/message/param). Clients reading the stream don't look inside a
+    nested "error" object — the nested shape is the non-stream / Chat
+    Completions convention. opentoken now emits the flat shape."""
+
+    class FailingRouter:
+        def chat(self, request):
+            raise RuntimeError("upstream exploded")
+
+        def stream_chat(self, request):
+            raise RuntimeError("upstream exploded")
+
+    monkeypatch.setattr(responses_route_module, "get_default_router", lambda: FailingRouter())
+    client = TestClient(create_app())
+
+    with client.stream(
+        "POST",
+        "/v1/responses",
+        json={
+            "model": "algae/deepseek/deepseek-chat",
+            "input": "hi",
+            "stream": True,
+        },
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    events = _parse_named_sse(body)
+    error_events = [payload for name, payload in events if name == "error"]
+    assert error_events, f"expected an error event in the SSE stream, got: {events}"
+    payload = error_events[-1]
+    # Flat top-level fields per OpenAI Responses spec — no nested "error".
+    assert payload["type"] == "error"
+    assert "error" not in payload
+    assert payload["code"] in {"invalid_request_error", "api_error", "rate_limit_error"}
+    assert "upstream exploded" in str(payload["message"])
+    assert "param" in payload

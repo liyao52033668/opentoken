@@ -672,10 +672,13 @@ def _stream_error_payload(exc: Exception) -> dict[str, object]:
         error_type = "api_error"
     else:
         error_type = "invalid_request_error"
+    # OpenAI Responses streaming "error" events carry flat top-level fields
+    # (type/code/message/param) — NOT a nested "error" object (that nested shape
+    # is the Chat Completions / non-stream convention). Clients parsing the
+    # Responses SSE stream look for message/code at the top level.
     return {
         "type": "error",
-        "error": {
-            "message": str(exc),
-            "type": error_type,
-        },
+        "code": error_type,
+        "message": str(exc),
+        "param": None,
     }
