@@ -98,6 +98,29 @@ def test_parse_web_tool_response_extracts_parallel_tagged_tool_calls() -> None:
     assert tool_calls[1]["function"]["arguments"] == '{"text":"done"}'
 
 
+def test_parse_web_tool_response_salvages_single_tool_call_object_without_array() -> None:
+    """A single tool-call OBJECT (not wrapped in an array) is a common model
+    mistake — salvage it instead of hard-failing into a repair round-trip."""
+    content, tool_calls, finish_reason = parse_web_tool_response(
+        '<tool_calls>{"name":"web_search","arguments":{"query":"hi"}}</tool_calls>'
+    )
+    assert finish_reason == "tool_calls"
+    assert [call["function"]["name"] for call in tool_calls] == ["web_search"]
+    assert tool_calls[0]["function"]["arguments"] == '{"query":"hi"}'
+
+
+def test_parse_web_tool_response_xml_body_non_object_treated_as_raw_arguments() -> None:
+    """An XML tool_call whose body decodes to a non-object JSON value (a bare
+    string) must be treated as raw arguments, not rejected outright."""
+    content, tool_calls, finish_reason = parse_web_tool_response(
+        '<tool_call id="c1" name="echo">"just a string"</tool_call>'
+    )
+    assert finish_reason == "tool_calls"
+    assert tool_calls[0]["function"]["name"] == "echo"
+    # The raw string body is preserved verbatim as the arguments payload.
+    assert tool_calls[0]["function"]["arguments"] == '"just a string"'
+
+
 def test_parse_web_tool_response_coerces_plain_reasoning_prefix_into_think_block() -> None:
     content, tool_calls, finish_reason = parse_web_tool_response(
         '用户需要查询东京的天气，需要调用get_weather工具，传入location参数为Tokyo\n'

@@ -110,7 +110,14 @@ def _project_visible_protocol_text(content: str, *, include_think: bool = True) 
         return ""
 
     visible_parts: list[str] = []
-    stack: list[str] = []
+    # Each stack entry is (tag_name, open_was_emitted). Tracking whether a tag's
+    # OPEN was emitted lets us emit the matching CLOSE iff the open was shown —
+    # keeping markup balanced even under malformed nesting like
+    # "<think>a<tool_call>b</think>c", where the </think> arrives while a
+    # dangling hidden <tool_call> is still on the stack. The old code keyed the
+    # close on the current hidden state (was_hidden), so it dropped the
+    # </think> there and emitted an unbalanced "<think>ac".
+    stack: list[tuple[str, bool]] = []
     hidden_depth = 0
     index = 0
     visible_tags = {_THINK_PROTOCOL_TAG} if include_think else set()
@@ -125,26 +132,26 @@ def _project_visible_protocol_text(content: str, *, include_think: bool = True) 
                 break
             if matched_tag is not None:
                 tag_name, is_closing, next_index, raw_tag = matched_tag
-                was_hidden = hidden_depth > 0
                 if is_closing:
                     for stack_index in range(len(stack) - 1, -1, -1):
-                        if stack[stack_index] != tag_name:
+                        if stack[stack_index][0] != tag_name:
                             continue
-                        for popped in stack[stack_index:]:
-                            if popped in hidden_tags:
+                        open_was_emitted = stack[stack_index][1]
+                        for popped_name, _popped_emitted in stack[stack_index:]:
+                            if popped_name in hidden_tags:
                                 hidden_depth -= 1
                         del stack[stack_index:]
+                        if tag_name in visible_tags and open_was_emitted:
+                            visible_parts.append(raw_tag)
                         break
                 else:
-                    stack.append(tag_name)
+                    was_hidden = hidden_depth > 0
+                    will_emit = tag_name in visible_tags and not was_hidden
+                    stack.append((tag_name, will_emit))
                     if tag_name in hidden_tags:
                         hidden_depth += 1
-                if (
-                    tag_name in visible_tags
-                    and not was_hidden
-                    and hidden_depth == 0
-                ):
-                    visible_parts.append(raw_tag)
+                    if will_emit:
+                        visible_parts.append(raw_tag)
                 index = next_index
                 continue
         if hidden_depth == 0:

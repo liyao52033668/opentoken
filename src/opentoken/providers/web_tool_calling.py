@@ -454,6 +454,11 @@ def _parse_parallel_tool_calls_block(raw_json: str) -> list[dict[str, object]]:
             payload = json.loads(extracted)
         except json.JSONDecodeError as nested_exc:
             raise RuntimeError(f"invalid tool_calls json: {nested_exc}") from nested_exc
+    # Common model mistake: emitting a single tool-call object without the
+    # surrounding array. Salvage it rather than hard-fail and force a repair
+    # round-trip — a single object IS semantically "one tool call".
+    if isinstance(payload, dict):
+        payload = [payload]
     if not isinstance(payload, list) or not payload:
         raise RuntimeError("tool_calls payload must be a non-empty JSON array")
     counts: dict[str, int] = {}
@@ -1025,7 +1030,10 @@ def _normalize_xml_tool_body(body: str) -> str:
     except json.JSONDecodeError:
         return _normalize_jsonish(cleaned)
     if not isinstance(parsed, dict):
-        raise RuntimeError("tool_call body must decode to a JSON object")
+        # Body decoded to a non-object JSON value (a bare string, array, or
+        # number). Treat it as raw arguments rather than rejecting the whole
+        # tool call — the model still clearly intended a call.
+        return _normalize_jsonish(cleaned)
     return json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
 
 

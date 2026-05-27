@@ -330,6 +330,11 @@ def _verify_chat_completion_stream(
                 return _failed_check("chat_stream", response)
             lines = [line for line in response.iter_lines() if line]
 
+        if not lines:
+            # Empty stream (provider died mid-handshake / all lines were blank-
+            # filtered). lines[-1] would IndexError and surface as a confusing
+            # "list index out of range" detail instead of the real failure.
+            return _failed_detail("chat_stream", "stream produced no SSE lines")
         if lines[-1] != "data: [DONE]":
             return _failed_detail("chat_stream", f"unexpected terminal line: {lines[-1]}")
         chunks = [_parse_data_line(line, "chat_stream") for line in lines[:-1]]

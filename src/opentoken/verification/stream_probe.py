@@ -30,9 +30,19 @@ PROVIDER_MIN_INTERVALS = {
 }
 
 
+def _provider_of(model_id: str) -> str | None:
+    # Catalog ids are "algae/<provider>/<model>". Guard against any malformed
+    # id (missing prefix) so a bad cache entry can't IndexError or silently
+    # mis-key the provider.
+    parts = model_id.split("/")
+    if len(parts) >= 3 and parts[0] == "algae":
+        return parts[1]
+    return None
+
+
 def iter_valid_models() -> list[str]:
     valid = {record.provider for record in list_provider_credentials(resolve_providers_dir()) if record.status == "valid"}
-    return [entry.id for entry in load_model_catalog() if entry.id.split("/")[1] in valid]
+    return [entry.id for entry in load_model_catalog() if _provider_of(entry.id) in valid]
 
 
 
@@ -281,7 +291,7 @@ def run_live_stream_regression(
     last_finished: dict[str, float] = defaultdict(float)
     try:
         for model in iter_valid_models():
-            provider = model.split("/")[1]
+            provider = _provider_of(model) or ""
             min_interval = PROVIDER_MIN_INTERVALS.get(provider, 0.25)
             for endpoint_name, fn in (("chat/completions", probe_chat), ("responses", probe_responses)):
                 elapsed = time.perf_counter() - last_finished[provider]

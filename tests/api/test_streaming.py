@@ -70,3 +70,28 @@ def test_chunk_visible_text_preserves_complete_think_tag_boundaries() -> None:
         "</think>",
         "最终答案",
     ]
+
+
+def test_project_emits_close_think_even_when_inner_hidden_tag_was_open() -> None:
+    """Malformed nesting: a <tool_call> opens inside <think> and never closes
+    before </think> fires. The visible region is "<think>a" + "</think>c"; the
+    close MUST be emitted to keep the markup balanced, even though hidden
+    state was True at the moment </think> arrived. The old code suppressed
+    the close, leaving downstream `<think>` block parsers permanently open."""
+    text = '<think>a<tool_call id="x" name="t">b</think>c'
+    assert strip_tool_protocol_markup(text) == "<think>a</think>c"
+
+
+def test_project_via_projector_handles_unclosed_inner_hidden_tag() -> None:
+    """Same scenario but driven through the streaming projector, since SSE
+    clients see the projector's output, not strip_tool_protocol_markup's."""
+    projector = ProtocolMarkupProjector()
+    final = projector.push('<think>reason</think>')  # baseline
+    assert projector.visible_text == "<think>reason</think>"
+
+    projector2 = ProtocolMarkupProjector()
+    projector2.push('<think>reason here')
+    projector2.push('<tool_call id="x" name="t">{}</tool_call>')
+    # The close of think must eventually appear once we send it.
+    projector2.push('</think>after')
+    assert projector2.visible_text == "<think>reason here</think>after"
