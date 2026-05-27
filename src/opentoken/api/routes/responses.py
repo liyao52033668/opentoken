@@ -646,7 +646,18 @@ def _resolve_request_with_previous_response(payload: dict[str, object]):
     previous_messages = load_response_messages(resolve_state_dir(), previous_response_id)
     if previous_messages is None:
         raise RuntimeError(f"Unknown previous_response_id: {previous_response_id}")
-    return request.model_copy(update={"messages": previous_messages + list(request.messages)})
+    # The new request's `instructions` are normalized into a leading system
+    # message. When chaining onto a prior conversation, that system message must
+    # stay at the FRONT of the model context — a plain `previous + new` concat
+    # buried it after the entire prior conversation, so the active instructions
+    # arrived last and models largely ignored them. Hoist leading system
+    # messages to the top, then prior turns, then the new user input.
+    new_messages = list(request.messages)
+    leading_system: list[dict[str, object]] = []
+    while new_messages and str(new_messages[0].get("role")) == "system":
+        leading_system.append(new_messages.pop(0))
+    merged = leading_system + list(previous_messages) + new_messages
+    return request.model_copy(update={"messages": merged})
 
 
 def _save_response_history(*, response_id: str, request, response: ChatResponse) -> None:

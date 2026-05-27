@@ -20,6 +20,17 @@ def maybe_require_api_key(request: Request):
         return None
 
     expected_api_key = _get_expected_api_key(resolve_app_config_path())
+    if expected_api_key is None:
+        # The config file EXISTS but couldn't be parsed (corrupt/truncated).
+        # Fail CLOSED: we must never serve authenticated provider sessions
+        # unauthenticated just because we couldn't read the key. A genuinely
+        # absent config / empty key returns "" (handled below), which is the
+        # documented keyless-local mode.
+        return openai_error_response(
+            status_code=503,
+            message="Gateway configuration is unreadable; cannot verify the API key.",
+            error_type="api_error",
+        )
     if not expected_api_key:
         return None
 
@@ -35,7 +46,15 @@ def maybe_require_api_key(request: Request):
     return None
 
 
-def _get_expected_api_key(config_path: Path) -> str:
+def _get_expected_api_key(config_path: Path) -> str | None:
+    """Return the configured gateway API key.
+
+    Returns:
+      - the key string when one is configured,
+      - "" when there is no config file or no key field (keyless-local mode),
+      - None when the config file EXISTS but is corrupt/unreadable, so callers
+        can fail closed rather than fall through to the keyless path.
+    """
     global _CACHED_API_KEY, _CACHED_MTIME_NS, _CACHED_PATH
     try:
         stat = config_path.stat()
@@ -56,9 +75,12 @@ def _get_expected_api_key(config_path: Path) -> str:
             return _CACHED_API_KEY
 
     payload = _load_existing_app_config(config_path)
-    api_key = ""
-    if isinstance(payload, dict):
-        api_key = str(payload.get("api_key", "")).strip()
+    if payload is None:
+        # File exists (stat succeeded) but parse failed or wasn't a JSON object.
+        # Don't cache — the user will likely fix it; signal "unreadable" so the
+        # middleware fails closed instead of treating it as keyless.
+        return None
+    api_key = str(payload.get("api_key", "")).strip()
 
     with _CACHE_LOCK:
         _CACHED_API_KEY = api_key
@@ -79,7 +101,12 @@ def reset_auth_cache() -> None:
 def _load_existing_app_config(config_path: Path) -> dict[str, object] | None:
     if not config_path.exists():
         return None
-    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        # Corrupt / truncated config must NOT crash the auth middleware on every
+        # request (a 500 storm). Return None; the caller fails closed.
+        return None
     if not isinstance(payload, dict):
         return None
     return payload

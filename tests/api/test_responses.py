@@ -813,6 +813,42 @@ def test_responses_previous_response_id_reuses_stored_messages(monkeypatch, tmp_
     ]
 
 
+def test_responses_previous_response_id_hoists_new_instructions_to_front(monkeypatch, tmp_path) -> None:
+    """A follow-up request's `instructions` must lead the model context, not be
+    buried after the entire prior conversation. Otherwise the active system
+    prompt arrives last and models largely ignore it."""
+    router = PreviousResponseRouter()
+    monkeypatch.setattr(responses_route_module, "get_default_router", lambda: router)
+    monkeypatch.setattr(responses_route_module, "resolve_state_dir", lambda: tmp_path)
+    monkeypatch.setattr(response_store_module, "_resolve_response_store_path", lambda state_dir: tmp_path / "responses.json")
+    client = TestClient(create_app())
+
+    first = client.post(
+        "/v1/responses",
+        json={"model": "algae/deepseek/deepseek-chat", "input": "hello"},
+    )
+    assert first.status_code == 200
+    first_id = first.json()["id"]
+
+    second = client.post(
+        "/v1/responses",
+        json={
+            "model": "algae/deepseek/deepseek-chat",
+            "previous_response_id": first_id,
+            "instructions": "Always answer in French.",
+            "input": "again",
+        },
+    )
+
+    assert second.status_code == 200
+    assert router.seen_requests[1].messages == [
+        {"role": "system", "content": "Always answer in French."},
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "turn-1"},
+        {"role": "user", "content": "again"},
+    ]
+
+
 def test_responses_previous_response_id_rejects_unknown_id(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(responses_route_module, "get_default_router", lambda: FakeRouter())
     monkeypatch.setattr(responses_route_module, "resolve_state_dir", lambda: tmp_path)

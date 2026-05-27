@@ -39,6 +39,14 @@ from opentoken.verification.service import (
 app = typer.Typer(help='OpenToken CLI')
 
 
+def _is_loopback_host(host: str) -> bool:
+    """Loopback addresses bind only to this machine. Anything else (0.0.0.0,
+    ::, or a specific LAN/public IP) exposes the gateway and every logged-in
+    provider session beyond the local machine — the user should see a warning."""
+    canonical = host.strip().lower()
+    return canonical in {"127.0.0.1", "::1", "localhost", ""}
+
+
 @app.command()
 def onboard() -> None:
     """Initialize the opentoken state directory."""
@@ -172,6 +180,25 @@ def start(
     config = load_or_create_app_config(resolve_app_config_path())
     bind_host = host or str(config['host'])
     bind_port = port or int(config['port'])
+    if not _is_loopback_host(bind_host):
+        # Binding a non-loopback address exposes the gateway — and every logged-
+        # in provider session it proxies — to the local network (or the
+        # internet). Warn loudly; flag it as critical when no API key is set,
+        # since then the exposure is also unauthenticated.
+        has_api_key = bool(str(config.get('api_key', '')).strip())
+        typer.secho(
+            f'WARNING: binding to {bind_host} exposes OpenToken (and your logged-in '
+            f'provider sessions) beyond this machine.',
+            err=True,
+            fg=typer.colors.YELLOW,
+        )
+        if not has_api_key:
+            typer.secho(
+                'WARNING: no API key is configured, so this exposure is UNAUTHENTICATED. '
+                'Set an api_key in the config before binding a public interface.',
+                err=True,
+                fg=typer.colors.RED,
+            )
     typer.echo(f'Starting OpenToken on http://{bind_host}:{bind_port}')
     uvicorn.run(
         'opentoken.api.app:create_app',

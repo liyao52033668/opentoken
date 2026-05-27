@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from opentoken.models.discovery import load_model_catalog
+from opentoken.storage._atomic import write_json_atomic
 
 
 def build_algae_provider_patch(base_url: str, api_key: str) -> dict[str, object]:
@@ -32,14 +33,29 @@ def apply_algae_provider_patch(config_path: Path, patch: dict[str, object]) -> P
 
     if config_path.exists():
         raw = config_path.read_text(encoding='utf-8')
-        existing = json.loads(raw)
+        try:
+            parsed_existing = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            # Don't crash on a corrupt upstream config — surface a clear error
+            # so the user can repair it instead of seeing a raw stack trace.
+            raise RuntimeError(
+                f"Upstream config {config_path} is not valid JSON; refusing to "
+                f"overwrite a corrupt file. Repair or remove it and retry. "
+                f"({exc.__class__.__name__}: {exc})"
+            ) from exc
+        if isinstance(parsed_existing, dict):
+            existing = parsed_existing
         timestamp = datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')
         backup_path = config_path.with_name(f'{config_path.name}.{timestamp}.bak')
         backup_path.write_text(raw, encoding='utf-8')
 
     merged = _merge_provider_patch(existing, patch)
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(merged, indent=2), encoding='utf-8')
+    # The patch embeds the gateway API key in `providers.algae.apiKey`. Write
+    # atomically (tmp + os.replace) so a crash mid-write can't truncate the
+    # user's upstream config, and chmod 0600 so the secret isn't briefly
+    # world-readable on a shared host.
+    write_json_atomic(config_path, merged, sensitive=True)
     return backup_path
 
 

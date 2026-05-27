@@ -1,4 +1,11 @@
-from opentoken.opentoken.bridge import build_algae_provider_patch
+import json
+import os
+import stat
+import sys
+
+import pytest
+
+from opentoken.opentoken.bridge import apply_algae_provider_patch, build_algae_provider_patch
 
 
 def test_build_algae_provider_patch_writes_envelope_with_dynamic_model_list(monkeypatch) -> None:
@@ -39,3 +46,35 @@ def test_build_algae_provider_patch_handles_empty_discovery(monkeypatch) -> None
     )
     provider = patch["models"]["providers"]["algae"]
     assert provider["models"] == []
+
+
+def test_apply_algae_provider_patch_writes_owner_only_and_atomic(tmp_path, monkeypatch) -> None:
+    """The upstream config carries the gateway apiKey — it must land 0600 and
+    leave no temp file behind (atomic tmp + os.replace)."""
+    monkeypatch.setattr("opentoken.opentoken.bridge.load_model_catalog", lambda: [])
+    config_path = tmp_path / "opentoken.json"
+    patch = build_algae_provider_patch(base_url="http://127.0.0.1:32117/v1", api_key="secret-key")
+    apply_algae_provider_patch(config_path, patch)
+
+    assert config_path.exists()
+    written = json.loads(config_path.read_text(encoding="utf-8"))
+    assert written["models"]["providers"]["algae"]["apiKey"] == "secret-key"
+    if not sys.platform.startswith("win"):
+        mode = stat.S_IMODE(os.stat(config_path).st_mode)
+        assert mode & 0o077 == 0, f"upstream config too permissive: {oct(mode)}"
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_apply_algae_provider_patch_rejects_corrupt_existing_config(tmp_path, monkeypatch) -> None:
+    """A corrupt existing upstream config must raise a clear error, not a raw
+    JSONDecodeError, and must not overwrite the corrupt file."""
+    monkeypatch.setattr("opentoken.opentoken.bridge.load_model_catalog", lambda: [])
+    config_path = tmp_path / "opentoken.json"
+    config_path.write_text("{ this is not json", encoding="utf-8")
+    patch = build_algae_provider_patch(base_url="http://x/v1", api_key="k")
+
+    with pytest.raises(RuntimeError, match="not valid JSON"):
+        apply_algae_provider_patch(config_path, patch)
+
+    # The corrupt file is left intact (we refused to overwrite it).
+    assert config_path.read_text(encoding="utf-8") == "{ this is not json"
