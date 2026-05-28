@@ -52,9 +52,13 @@ def chat_completions(payload: dict[str, object]) -> dict[str, object]:
             error_type="invalid_request_error",
         )
     except httpx.HTTPError as exc:
+        # 不要把 str(exc) 直接回给客户端 —— httpx.HTTPStatusError 的 str 形如
+        # "Server error '500 ...' for url 'https://upstream/x?session=...'",
+        # 会泄漏 opentoken 的内部路由 + 上游 URL（可能含 session id）。换通用
+        # 文案,把详情记到日志（global_exception_handler 已经有 traceback log）。
         return openai_error_response(
             status_code=502,
-            message=str(exc),
+            message=f"Upstream provider error ({type(exc).__name__}).",
             error_type="api_error",
         )
     if request.stream:
@@ -84,9 +88,13 @@ def chat_completions(payload: dict[str, object]) -> dict[str, object]:
             error_type=error_type,
         )
     except httpx.HTTPError as exc:
+        # 不要把 str(exc) 直接回给客户端 —— httpx.HTTPStatusError 的 str 形如
+        # "Server error '500 ...' for url 'https://upstream/x?session=...'",
+        # 会泄漏 opentoken 的内部路由 + 上游 URL（可能含 session id）。换通用
+        # 文案,把详情记到日志（global_exception_handler 已经有 traceback log）。
         return openai_error_response(
             status_code=502,
-            message=str(exc),
+            message=f"Upstream provider error ({type(exc).__name__}).",
             error_type="api_error",
         )
     created = int(time())

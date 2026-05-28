@@ -304,12 +304,11 @@ def test_chat_completions_maps_upstream_http_error_over_real_http(http_server, t
         )
 
     assert response.status_code == 502
-    assert response.json() == {
-        "error": {
-            "message": "upstream rate limited",
-            "type": "api_error",
-        }
-    }
+    body = response.json()
+    assert body["error"]["type"] == "api_error"
+    # str(httpx_exc) 会带上游 URL/path → 已改为通用文案。
+    assert "Upstream provider error" in body["error"]["message"]
+    assert "upstream rate limited" not in body["error"]["message"]
 
 
 def test_chat_completions_validates_missing_model_over_real_http(http_server, tmp_path: Path) -> None:
@@ -670,12 +669,10 @@ def test_responses_maps_upstream_http_error_over_real_http(http_server, tmp_path
         )
 
     assert response.status_code == 502
-    assert response.json() == {
-        "error": {
-            "message": "upstream rate limited",
-            "type": "api_error",
-        }
-    }
+    body = response.json()
+    assert body["error"]["type"] == "api_error"
+    assert "Upstream provider error" in body["error"]["message"]
+    assert "upstream rate limited" not in body["error"]["message"]
 
 
 def test_responses_validates_missing_model_over_real_http(http_server, tmp_path: Path) -> None:

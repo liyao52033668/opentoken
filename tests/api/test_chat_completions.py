@@ -146,12 +146,12 @@ def test_chat_completions_maps_upstream_http_errors_to_bad_gateway(monkeypatch) 
     )
 
     assert response.status_code == 502
-    assert response.json() == {
-        "error": {
-            "message": "upstream rejected request",
-            "type": "api_error",
-        }
-    }
+    # 不能把 str(httpx_error) 直接回给客户端 —— 那会泄漏上游 URL（含 session
+    # id 等）。改用通用文案 + 异常类型,详情进日志。
+    body = response.json()
+    assert body["error"]["type"] == "api_error"
+    assert "Upstream provider error" in body["error"]["message"]
+    assert "upstream rejected request" not in body["error"]["message"]
 
 
 def test_chat_completions_maps_rate_limit_errors(monkeypatch) -> None:

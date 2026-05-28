@@ -72,6 +72,20 @@ def test_chunk_visible_text_preserves_complete_think_tag_boundaries() -> None:
     ]
 
 
+def test_chunk_visible_text_handles_nested_think_blocks() -> None:
+    """嵌套 think:"<think>a<think>b</think>c</think>d" 之前非贪婪 regex 只匹配
+    最内层一对,留下 "c</think>d" 走 plain → 客户端看到孤立 </think>。栈式扫描
+    取最外层后,内层标签留在外层 body 里原样输出,外层结束 d 仍是 plain。"""
+    result = chunk_visible_text("<think>a<think>b</think>c</think>d")
+    # 把 chunks 拼回去应该等于原文（仅 chunking 拆分,无字符丢失）
+    assert "".join(result) == "<think>a<think>b</think>c</think>d"
+    # 第一个 chunk 是外层 <think>,最后包含 d 的 chunk 不该是孤立的 </think>
+    assert result[0] == "<think>"
+    # </think> 应该恰好出现一次作为独立 chunk（外层闭合）
+    standalone_close = [c for c in result if c == "</think>"]
+    assert len(standalone_close) == 1
+
+
 def test_projector_handles_tags_split_character_by_character() -> None:
     """Incremental projector: feeding one character per push must reassemble
     tags across the unparsed-tail boundary and yield the same final visible

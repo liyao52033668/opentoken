@@ -57,18 +57,47 @@ def chunk_visible_text(
     if not include_think:
         return _chunk_plain_text(text, max_chunk_len=max_chunk_len)
 
+    # 嵌套 think 处理：之前用 _THINK_BLOCK_PATTERN.finditer 非贪婪匹配,对
+    # "<think>a<think>b</think>c</think>d" 只会匹配内层一对,留下 "c</think>d"
+    # 走 plain text → 客户端看到孤立的 </think>。改用栈式扫描找最外层 think
+    # 对,内层标签作为外层 body 的一部分原样传走（client 自己渲染）。
+    open_pattern = re.compile(r"<think\b[^>]*>", re.IGNORECASE)
+    close_pattern = re.compile(r"</think\s*>", re.IGNORECASE)
     chunks: list[str] = []
-    last_index = 0
-    for match in _THINK_BLOCK_PATTERN.finditer(text):
-        if match.start() > last_index:
-            chunks.extend(_chunk_plain_text(text[last_index : match.start()], max_chunk_len=max_chunk_len))
-        opening_tag, think_body, closing_tag = match.groups()
-        chunks.append(opening_tag)
-        chunks.extend(_chunk_plain_text(think_body, max_chunk_len=max_chunk_len))
-        chunks.append(closing_tag)
-        last_index = match.end()
-    if last_index < len(text):
-        chunks.extend(_chunk_plain_text(text[last_index:], max_chunk_len=max_chunk_len))
+    cursor = 0
+    while cursor < len(text):
+        open_match = open_pattern.search(text, cursor)
+        if open_match is None:
+            chunks.extend(_chunk_plain_text(text[cursor:], max_chunk_len=max_chunk_len))
+            break
+        if open_match.start() > cursor:
+            chunks.extend(_chunk_plain_text(text[cursor : open_match.start()], max_chunk_len=max_chunk_len))
+        depth = 1
+        scan = open_match.end()
+        end_match: re.Match[str] | None = None
+        while depth > 0 and scan < len(text):
+            next_open = open_pattern.search(text, scan)
+            next_close = close_pattern.search(text, scan)
+            if next_close is None:
+                break  # unbalanced — bail out, emit raw
+            if next_open is not None and next_open.start() < next_close.start():
+                depth += 1
+                scan = next_open.end()
+            else:
+                depth -= 1
+                scan = next_close.end()
+                if depth == 0:
+                    end_match = next_close
+                    break
+        if end_match is None:
+            # 没找到平衡的 close —— 把剩下当 plain（保持现状,不强行 inject）
+            chunks.extend(_chunk_plain_text(text[open_match.start():], max_chunk_len=max_chunk_len))
+            break
+        chunks.append(open_match.group(0))
+        body = text[open_match.end() : end_match.start()]
+        chunks.extend(_chunk_plain_text(body, max_chunk_len=max_chunk_len))
+        chunks.append(end_match.group(0))
+        cursor = end_match.end()
     return [chunk for chunk in chunks if chunk]
 
 

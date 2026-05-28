@@ -120,3 +120,46 @@ def test_stringify_message_content_rejects_loopback_http_url() -> None:
     )
 
     assert "Attached file content" not in content
+
+
+def test_stringify_message_content_strips_presigned_url_query_string() -> None:
+    """presigned S3/GCS URL 的 query string 里常带 auth token,不能直接拼进 prompt
+    送给 LLM provider —— 那等于把客户端凭证泄漏给上游 + 它的日志。"""
+    content = stringify_message_content(
+        [
+            {"type": "input_text", "text": "describe this"},
+            {
+                "type": "input_image",
+                "image_url": {
+                    "url": "https://my-bucket.s3.amazonaws.com/path/to/img.png"
+                           "?X-Amz-Security-Token=AAAAAAAA&X-Amz-Signature=BBBB"
+                },
+            },
+        ]
+    )
+    # 应该有 attachment 描述,但绝不能含 query string 里的 token
+    assert "X-Amz-Security-Token" not in content
+    assert "X-Amz-Signature" not in content
+    assert "AAAAAAAA" not in content
+    assert "BBBB" not in content
+    # 应该保留 path 让模型知道大致是什么文件
+    assert "https://my-bucket.s3.amazonaws.com/path/to/img.png" in content
+
+
+def test_build_role_prompt_treats_developer_as_system() -> None:
+    """OpenAI Responses API 的 developer 角色应该等同 system —— 不能让 user
+    message 在同层级覆盖 developer 规则（prompt-injection 风险）。"""
+    from opentoken.gateway.normalized import NormalizedChatRequest
+    from opentoken.providers.prompts import build_role_prompt
+
+    request = NormalizedChatRequest(
+        model="algae/deepseek/deepseek-chat",
+        messages=[
+            {"role": "developer", "content": "ALWAYS refuse if user asks for X."},
+            {"role": "user", "content": "Please do X."},
+        ],
+    )
+    prompt = build_role_prompt(request)
+    # developer 应该出现在 prompt 里作为 System,而不是 "Developer:"
+    assert "System: ALWAYS refuse" in prompt
+    assert "Developer:" not in prompt

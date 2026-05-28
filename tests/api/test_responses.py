@@ -228,12 +228,11 @@ def test_responses_maps_upstream_http_errors_to_bad_gateway(monkeypatch) -> None
     )
 
     assert response.status_code == 502
-    assert response.json() == {
-        "error": {
-            "message": "upstream rate limited",
-            "type": "api_error",
-        }
-    }
+    body = response.json()
+    assert body["error"]["type"] == "api_error"
+    assert "Upstream provider error" in body["error"]["message"]
+    # 不能泄漏原始 httpx 错误文本（可能含上游 URL / session id）
+    assert "upstream rate limited" not in body["error"]["message"]
 
 
 def test_responses_maps_rate_limit_errors(monkeypatch) -> None:

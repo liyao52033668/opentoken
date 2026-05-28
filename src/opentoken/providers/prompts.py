@@ -15,6 +15,10 @@ from opentoken.gateway.normalized import NormalizedChatRequest
 
 _ROLE_LABELS = {
     "system": "System",
+    "developer": "System",  # OpenAI Responses API 的 developer 角色等同 system；
+                             # 不映射会被 .title() 当成普通"Developer"消息层级,
+                             # 允许 user message 覆盖 developer 规则 → prompt-
+                             # injection 风险。
     "assistant": "Assistant",
     "tool": "Tool",
     "user": "User",
@@ -238,6 +242,21 @@ def _describe_resource_source(source: object, *, fallback_label: str) -> str:
         match = re.match(r"^data:(?P<mime>[^;,]+)", value, flags=re.IGNORECASE)
         mime = match.group("mime") if match is not None else fallback_label
         return f"data URI ({mime})"
+    # HTTP(S) 附件：去掉 query / fragment 再放进 prompt —— 客户端常用 presigned
+    # S3/GCS URL,query string 里带 auth token,直接拼进 prompt 会把这些凭证
+    # 送给 LLM provider（以及它的日志）。只暴露 scheme://host/path 提示模型
+    # "有这么个 URL 的附件",细节走不出网关。
+    if value.startswith("http://") or value.startswith("https://"):
+        try:
+            parsed = urlparse(value)
+        except ValueError:
+            return fallback_label
+        scrubbed = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".strip()
+        if not scrubbed or scrubbed in {"http://", "https://"}:
+            return fallback_label
+        if len(scrubbed) > 256:
+            return scrubbed[:253] + "..."
+        return scrubbed
     if len(value) > 256:
         return value[:253] + "..."
     return value

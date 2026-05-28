@@ -55,9 +55,10 @@ def responses(payload: dict[str, object]) -> dict[str, object]:
             error_type="invalid_request_error",
         )
     except httpx.HTTPError as exc:
+        # 不回 str(exc) —— 上游 URL（含 session id）会泄漏。
         return openai_error_response(
             status_code=502,
-            message=str(exc),
+            message=f"Upstream provider error ({type(exc).__name__}).",
             error_type="api_error",
         )
     if request.stream:
@@ -91,9 +92,10 @@ def responses(payload: dict[str, object]) -> dict[str, object]:
             error_type=error_type,
         )
     except httpx.HTTPError as exc:
+        # 不回 str(exc) —— 上游 URL（含 session id）会泄漏。
         return openai_error_response(
             status_code=502,
-            message=str(exc),
+            message=f"Upstream provider error ({type(exc).__name__}).",
             error_type="api_error",
         )
     response_id = f"resp-{uuid4().hex}"
