@@ -19,16 +19,27 @@ SYSTEM_FINGERPRINT = "fp_opentoken_v1"
 
 
 def estimate_tokens(text: str) -> int:
+    """ASCII ≈ 1 token / 4 chars; CJK 范围 ≈ 1 token / 1.5 chars; emoji /
+    astral-plane (code point > 0xFFFF) ≈ 3 tokens / 字符 —— 真实 BPE 把一个
+    emoji 拆成 3-4 个 byte-level token。之前把 astral 字符也按 1.5 比 1 算,
+    100 个 emoji 估算 ~67,真实 ~300,严重低估推理成本/上下文消耗。"""
     if not text:
         return 0
     ascii_count = 0
-    other_count = 0
+    cjk_or_bmp_count = 0
+    astral_count = 0
     for char in text:
-        if ord(char) < 128:
+        codepoint = ord(char)
+        if codepoint < 128:
             ascii_count += 1
+        elif codepoint > 0xFFFF:
+            astral_count += 1
         else:
-            other_count += 1
-    return max(1, round(ascii_count / 4 + other_count / 1.5))
+            cjk_or_bmp_count += 1
+    return max(
+        1,
+        round(ascii_count / 4 + cjk_or_bmp_count / 1.5 + astral_count * 3),
+    )
 
 
 def estimate_prompt_tokens(messages: list[dict[str, object]] | None) -> int:

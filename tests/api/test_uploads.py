@@ -125,3 +125,31 @@ def test_uploads_parts_exceeding_declared_total_are_rejected(monkeypatch, tmp_pa
     )
     assert second.status_code == 413
     assert "declared size" in second.json()["error"]["message"]
+
+
+def test_uploads_complete_when_part_blob_missing_marks_cancelled(monkeypatch, tmp_path) -> None:
+    """某个 part .bin 被外部删掉（磁盘清理/手动 rm）后,/complete 不能让 upload
+    永远卡在 created 状态让人不停追加坏 parts。应该 mark cancelled 并返 404。"""
+    monkeypatch.setattr(uploads_route_module, "resolve_state_dir", lambda: tmp_path)
+    client = TestClient(create_app())
+
+    create_response = client.post(
+        "/v1/uploads",
+        json={"filename": "f.bin", "bytes": 10, "mime_type": "application/octet-stream", "purpose": "assistants"},
+    )
+    upload_id = create_response.json()["id"]
+
+    part_response = client.post(
+        f"/v1/uploads/{upload_id}/parts",
+        files={"data": ("p1", b"abcdef", "application/octet-stream")},
+    )
+    assert part_response.status_code == 200
+
+    # 手动删 part blob 模拟磁盘清理
+    import shutil
+    blob_dir = tmp_path / "uploads"
+    if blob_dir.exists():
+        shutil.rmtree(blob_dir)
+
+    complete_response = client.post(f"/v1/uploads/{upload_id}/complete", json={})
+    assert complete_response.status_code == 404

@@ -158,6 +158,12 @@ def _load_cached_models(
     expires_at = float(payload.get("expires_at", 0) or 0)
     if expires_at < now:
         return None
+    # Wall-clock sanity check：expires_at 是用 time.time() 写的,如果系统时钟
+    # 反向跳过（NTP correction / container restore / 手动调时）,过期 entry 的
+    # expires_at 可能比现在 now *大很多*,导致它看起来还在未来 → 永不失效。
+    # 强制：expires_at 不能距 now 超过 TTL 本身,超了视为已过期。
+    if expires_at - now > _DISCOVERY_TTL_SECONDS:
+        return None
     models = payload.get("models")
     if not isinstance(models, list):
         return None

@@ -233,6 +233,35 @@ def test_load_model_catalog_prefers_live_discovery_over_fallback(
     assert kimi_models == ["algae/kimi/k3"]
 
 
+def test_load_cached_models_rejects_expires_at_too_far_in_future(tmp_path) -> None:
+    """Wall-clock 反向（NTP / container restore）→ expires_at 看起来还在未来,
+    永不失效。如果距 now 大于 TTL,视为已过期清掉,避免缓存被时钟跳跃锁住。"""
+    from opentoken.models.discovery import (
+        _DISCOVERY_TTL_SECONDS,
+        _load_cached_models,
+        _store_cached_models,
+    )
+
+    creds = ProviderCredentialRecord(
+        provider="alpha", kind="web_session", cookie="x", headers={},
+        user_agent="ua", metadata={}, status="valid",
+    )
+    cache: dict = {}
+    # 在远未来时间点写入,模拟系统时钟跳到未来后又跳回的场景
+    _store_cached_models(cache, provider="alpha", credentials=creds, models=[("m1", "M1")], now=10_000.0)
+
+    # 之后系统时钟回到现在,now 远在 expires_at 之前
+    # expires_at = 10000 + 6h(21600) = 31600; now = 0; 距 now = 31600 > TTL → 拒
+    assert _load_cached_models(cache, provider="alpha", credentials=creds, now=0.0) is None
+
+    # 正常路径：now 在 expires_at 之前但距它不超过 TTL → 返
+    result = _load_cached_models(
+        cache, provider="alpha", credentials=creds,
+        now=10_000.0 + _DISCOVERY_TTL_SECONDS - 100
+    )
+    assert result == [("m1", "M1")]
+
+
 def test_persist_discovered_models_merges_with_concurrent_writers(tmp_path) -> None:
     """Lost-update regression: two /v1/models passes both take an empty top-of-
     function cache snapshot, then each tries to persist its own provider. The

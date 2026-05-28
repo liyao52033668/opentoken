@@ -162,7 +162,19 @@ def complete_upload(
             _resolve_part_blob_path(state_dir, upload_id, str(part.get("id", "")))
             for part in ordered_parts
         ]
-        content = b"".join(blob_path.read_bytes() for blob_path in part_blob_paths)
+        # 如果某个 part .bin 被删了（磁盘清理 / 外部 unlink）,read_bytes 会
+        # FileNotFoundError 传到调用方 → 500,且 entry.status 还是 "created" →
+        # 后续 add_upload_part 还能继续追加,但这个 upload 已经永远 broken。
+        # 改为：若有 part 缺失,把 upload mark 成 cancelled 并返 None,客户端
+        # 拿到 404 后会知道要重新 create,而不是不停往坏的 upload 追加。
+        try:
+            content = b"".join(blob_path.read_bytes() for blob_path in part_blob_paths)
+        except FileNotFoundError:
+            entry["status"] = "cancelled"
+            entry["cancelled_reason"] = "missing_part_blob"
+            entry["cancelled_at"] = int(time())
+            _save_store(path, store)
+            return None
         entry["status"] = "completed"
         entry["completed_at"] = int(time())
         _save_store(path, store)
