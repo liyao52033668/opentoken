@@ -60,11 +60,12 @@ def probe_credentials(
         # Some providers (e.g. api-key providers like nim/manus/unified) don't
         # have a cheap GET we can hit without spending a quota; trust the user.
         return True
-    # A browser_session record without a cookie has no auth state — probing it
-    # would send an unauthenticated request to the target, which can return 200
-    # (some providers serve stub responses to anonymous GETs), falsely marking
-    # an empty credential as "ok" and overwriting a previously-working one.
-    if record.kind == "browser_session" and not (record.cookie or "").strip():
+    # 任何 kind（browser_session / web_session / api_key 但被注册了 probe）
+    # 的空-cookie 记录都 fail-closed —— 某些 provider 对匿名 GET 也回 200
+    # stub,会让 probe 误判 ok 并覆盖已有可用凭证。之前只 guard 了
+    # browser_session,但 manual --cookie 路径写的 kind 是 web_session,同样
+    # 可能 cookie 为空。
+    if not (record.cookie or "").strip():
         return False
     url, ok_status = target
 

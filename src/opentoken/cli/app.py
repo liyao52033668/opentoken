@@ -111,11 +111,31 @@ def login(
             status='valid',
         )
         providers_dir = resolve_providers_dir()
-        # Dry-run guard: if we already have a working credential for this
-        # provider, refuse to overwrite it with a freshly-harvested one that
-        # doesn't authenticate against the provider's known-good probe URL.
-        # A botched harvest (cookies grabbed before login completed, page
-        # navigated away mid-flow) could otherwise replace good cookies with
+        # Basic sanity check：browser harvest 没拿到任何 auth 信号就直接拒,不
+        # 论之前是否有凭证。probe_credentials 对没注册 probe URL 的 provider
+        # 是 trust-accept（per credentials_probe），所以光靠它救不了"页面没登
+        # 进去就关浏览器"这种 guest harvest 场景。这里要求至少有 cookie /
+        # bearer / access_token / api_key header 中的一项 *非空*,否则 record
+        # 没有任何鉴权材料,保留它只会污染 providers/。
+        has_auth_material = (
+            bool(record.cookie and record.cookie.strip())
+            or bool(record.metadata.get('access_token'))
+            or bool(record.metadata.get('session_token'))
+            or any(k.lower() == 'authorization' for k in (record.headers or {}))
+        )
+        if not has_auth_material:
+            typer.echo(
+                f'Browser capture for {provider_key} returned no auth material '
+                '(no cookie / bearer / access_token). Refusing to save an empty '
+                'credential record — likely the browser was closed before login '
+                'completed. Re-run `opentoken login` and finish the login flow.',
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        # Dry-run guard: if we already have a working credential, refuse to
+        # overwrite with a freshly-harvested one that doesn't authenticate
+        # against a known-good probe URL. A botched harvest (cookies grabbed
+        # before login completed) could otherwise replace good cookies with
         # broken ones. First-time logins skip the probe so a transient network
         # blip doesn't block the user.
         if load_provider_credentials(providers_dir, provider_key) is not None:

@@ -29,23 +29,16 @@ def capture_grok_browser_credentials(*, state_dir: Path) -> dict[str, str]:
                 cookies = context.cookies(["https://grok.com"])
                 cookie_string = build_cookie_string(cookies)
                 cookie_names = {str(item["name"]).lower() for item in cookies}
-                has_auth_cookie = any("sso" in name for name in cookie_names)
+                # 真登录后 grok 会下发 sso-* / auth_token / user 类 cookie。
+                # 之前的 fallback `len(cookies) > 1 and has_chat_input` 太宽松：
+                # 未登录页本身就有 textarea + 一堆匿名 cookie,所以会假阳性把
+                # guest 抓走覆盖真凭证。去掉那个 fallback,只信明确的 auth marker。
+                has_auth_cookie = any(
+                    "sso" in name or "auth_token" in name or name == "user_id"
+                    for name in cookie_names
+                )
 
-                has_chat_input = False
-                try:
-                    has_chat_input = bool(
-                        page.evaluate(
-                            """
-                            () => document.querySelector(
-                              'textarea, [contenteditable="true"], div[role="textbox"]'
-                            ) !== null
-                            """
-                        )
-                    )
-                except Exception:
-                    has_chat_input = False
-
-                if cookie_string and (has_auth_cookie or (len(cookies) > 1 and has_chat_input)):
+                if cookie_string and has_auth_cookie:
                     return {
                         "cookie": cookie_string,
                         "user_agent": user_agent,

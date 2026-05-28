@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi.testclient import TestClient
 
@@ -91,7 +94,25 @@ def run_verification_suite(*, requested_providers: tuple[str, ...] = ()) -> Veri
             futures = {executor.submit(verify, provider): provider for provider in targets}
             for future in concurrent.futures.as_completed(futures):
                 provider = futures[future]
-                results_by_provider[provider] = future.result()
+                try:
+                    results_by_provider[provider] = future.result()
+                except Exception as exc:
+                    # 单个 provider 抛未捕获异常时不能拖死整轮 verify ——
+                    # 转成 failed result,其它 provider 的结果照常汇总。
+                    definition = get_provider_definition(provider)
+                    display_name = definition.display_name if definition is not None else provider
+                    logger.exception(
+                        "verify_provider_crashed provider=%s error=%s",
+                        provider,
+                        exc,
+                    )
+                    results_by_provider[provider] = ProviderVerificationResult(
+                        provider=provider,
+                        display_name=display_name,
+                        model=None,
+                        status="failed",
+                        checks=(),
+                    )
 
     results = [results_by_provider[provider] for provider in targets]
     return VerificationReport(

@@ -75,16 +75,21 @@ class BoundedClientCache(Generic[T]):
             return value
 
     def set(self, key: str, value: T) -> None:
+        # 同 key 替换时,旧 wrapper 也要走 closer —— 否则反复 re-login 同一个
+        # provider（每次会喂一个新 wrapper 进同 key）旧 httpx.Client 不被
+        # close,connection pool / socket FD 持续泄漏。LRU 驱逐路径之前已经
+        # 处理,但 "replace" 路径漏了；同样的契约。
         evicted: T | None = None
         with self._lock:
             if key in self._items:
+                evicted = self._items[key]
                 self._items.move_to_end(key)
                 self._items[key] = value
             else:
                 self._items[key] = value
                 if len(self._items) > self._max_size:
                     _, evicted = self._items.popitem(last=False)
-        if evicted is not None and self._closer is not None:
+        if evicted is not None and evicted is not value and self._closer is not None:
             try:
                 self._closer(evicted)
             except Exception:

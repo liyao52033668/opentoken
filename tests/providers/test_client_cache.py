@@ -124,3 +124,16 @@ def test_cache_get_or_create_only_calls_factory_once():
     assert cache.get_or_create("k", factory) == "x"
     assert cache.get_or_create("k", factory) == "x"
     assert len(calls) == 1
+
+
+def test_cache_set_replacing_existing_key_closes_old_value():
+    """同 key 用新 value 替换时,旧 value 也要走 closer —— 否则反复 re-login
+    同一 provider 会泄漏 FD（每次 set 同 key 但旧 wrapper 不 close）。"""
+    closed: list[int] = []
+    cache: BoundedClientCache[int] = BoundedClientCache(closer=closed.append)
+    cache.set("a", 1)
+    cache.set("a", 2)
+    assert closed == [1]
+    cache.set("a", 3)
+    assert closed == [1, 2]
+    assert cache.get("a") == 3

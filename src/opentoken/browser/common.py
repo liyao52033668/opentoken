@@ -68,7 +68,18 @@ class _CamoufoxPlaywrightSession:
             }
             launch_options.setdefault('humanize', True)
             manager = camoufox(**launch_options)
-            context = manager.__enter__()
+            try:
+                # __enter__ 可能因 profile lock / fetch corruption / OOM 抛异常 ——
+                # 当时 manager 还没进 _managers,后续 cleanup 漏掉 → camoufox 子进
+                # 程残留。在 __enter__ 失败时显式 __exit__ 触发 manager 自己的清理
+                # 逻辑（如果有），并把异常透传上去让调用方知道启动失败。
+                context = manager.__enter__()
+            except BaseException:
+                try:
+                    manager.__exit__(None, None, None)
+                except Exception:
+                    pass
+                raise
             self._managers.append(manager)
             return context
 

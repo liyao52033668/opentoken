@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import time
 from pathlib import Path
 
@@ -27,16 +26,15 @@ def capture_qwen_browser_credentials(*, state_dir: Path) -> dict[str, str]:
             def on_request(request) -> None:
                 if 'qwen.ai' not in request.url:
                     return
+                # 真登录的 Bearer 头是最可靠的信号 —— 只信它,不要再从 cookie
+                # 里宽松 regex 匹配 (?:session|token|auth)[^=]+ —— 那个会命中
+                # _csrf_session / XSRF-TOKEN / oauth_state 等非鉴权 cookie,
+                # 把 guest 当登录把可用凭证替换掉。
                 auth = request.headers.get('authorization', '')
                 if auth.lower().startswith('bearer '):
-                    session_token['value'] = auth[7:].strip()
-                    return
-                cookie = request.headers.get('cookie', '')
-                if not cookie:
-                    return
-                match = re.search(r'(?:session|token|auth)[^=]*=([^;]+)', cookie, re.IGNORECASE)
-                if match:
-                    session_token['value'] = match.group(1)
+                    bearer_token = auth[7:].strip()
+                    if bearer_token and bearer_token.lower() not in {'undefined', 'null'}:
+                        session_token['value'] = bearer_token
 
             page.on('request', on_request)
             page.goto('https://chat.qwen.ai/', wait_until='domcontentloaded')
