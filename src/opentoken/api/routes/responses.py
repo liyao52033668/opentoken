@@ -8,7 +8,11 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
-from opentoken.api.errors import classify_provider_runtime_error, openai_error_response
+from opentoken.api.errors import (
+    classify_provider_runtime_error,
+    classify_stream_error,
+    openai_error_response,
+)
 from opentoken.api.streaming import (
     ProtocolMarkupProjector,
     chunk_visible_text,
@@ -751,23 +755,15 @@ def _save_response_history(*, response_id: str, request, response: ChatResponse)
 
 
 def _stream_error_payload(exc: Exception) -> dict[str, object]:
-    if isinstance(exc, ProviderRateLimitError):
-        error_type = "rate_limit_error"
-    elif isinstance(exc, RuntimeError):
-        # Match the non-stream path: classify upstream RuntimeErrors so a 502 /
-        # auth failure mid-stream isn't mislabeled invalid_request_error.
-        _status, error_type = classify_provider_runtime_error(exc)
-    elif isinstance(exc, httpx.HTTPError):
-        error_type = "api_error"
-    else:
-        error_type = "api_error"
-    # OpenAI Responses streaming "error" events carry flat top-level fields
-    # (type/code/message/param) — NOT a nested "error" object (that nested shape
-    # is the Chat Completions / non-stream convention). Clients parsing the
-    # Responses SSE stream look for message/code at the top level.
+    # Shared with the chat path: classify_stream_error maps the OpenAI error
+    # type AND scrubs leaky messages (httpx errors embed the upstream URL /
+    # session id in str(exc)). OpenAI Responses streaming "error" events carry
+    # flat top-level fields (type/code/message/param) — NOT a nested "error"
+    # object (that nested shape is the Chat Completions convention).
+    error_type, message = classify_stream_error(exc)
     return {
         "type": "error",
         "code": error_type,
-        "message": str(exc),
+        "message": message,
         "param": None,
     }

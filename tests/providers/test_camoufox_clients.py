@@ -4,6 +4,7 @@ import threading
 import time
 
 import httpx
+import pytest
 import opentoken.providers.camoufox_clients as camoufox_module
 from opentoken.models.provider_credentials import ProviderCredentialRecord
 from opentoken.providers.base import ProviderRateLimitError
@@ -488,6 +489,84 @@ def test_stream_glm_intl_api_completion_uses_fast_fail_http_timeout(monkeypatch)
     assert isinstance(timeout, httpx.Timeout)
     assert timeout.connect == 6.0
     assert timeout.read == 6.0
+
+
+class _ClosableApiClient:
+    """Fake api-client mirroring the real ones: owns an injected httpx client as
+    `self._client` (which close_httpx_backed_client closes) and streams text."""
+
+    def __init__(self, credentials, *, base_url=None, client=None) -> None:
+        self._client = client
+
+    def _gen(self):
+        yield "a"
+        yield "b"
+
+    iter_chat_completion_text = lambda self, *, message, model: self._gen()  # noqa: E731
+    iter_marked_chat_completion_text = lambda self, *, message, model: self._gen()  # noqa: E731
+
+    def chat_completion(self, *, message, model):
+        return "done"
+
+
+class _TrackingHttpxClient:
+    def __init__(self, *args, **kwargs) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _creds(provider):
+    return ProviderCredentialRecord(
+        provider=provider, kind="browser_session", cookie="token=1",
+        headers={}, user_agent="ua", status="valid",
+    )
+
+
+def test_stream_qwen_intl_api_completion_closes_client_on_exhaustion(monkeypatch) -> None:
+    tracker = _TrackingHttpxClient()
+    monkeypatch.setattr(camoufox_module.httpx, "Client", lambda *a, **k: tracker)
+    monkeypatch.setattr(camoufox_module, "QwenApiClient", _ClosableApiClient)
+    pieces = list(camoufox_module._stream_qwen_intl_api_completion(
+        _creds("qwen-intl"), message="hi", model="qwen3-max"))
+    assert pieces == ["a", "b"]
+    assert tracker.closed, "httpx client must be closed after the stream is exhausted"
+
+
+def test_stream_qwen_intl_api_completion_closes_client_on_early_close(monkeypatch) -> None:
+    tracker = _TrackingHttpxClient()
+    monkeypatch.setattr(camoufox_module.httpx, "Client", lambda *a, **k: tracker)
+    monkeypatch.setattr(camoufox_module, "QwenApiClient", _ClosableApiClient)
+    gen = camoufox_module._stream_qwen_intl_api_completion(
+        _creds("qwen-intl"), message="hi", model="qwen3-max")
+    assert next(gen) == "a"
+    gen.close()  # consumer abandons the stream mid-way
+    assert tracker.closed, "httpx client must be closed even if the consumer stops early"
+
+
+def test_stream_glm_intl_api_completion_closes_client_on_exhaustion(monkeypatch) -> None:
+    tracker = _TrackingHttpxClient()
+    monkeypatch.setattr(camoufox_module.httpx, "Client", lambda *a, **k: tracker)
+    monkeypatch.setattr(camoufox_module, "GLMIntlApiClient", _ClosableApiClient)
+    pieces = list(camoufox_module._stream_glm_intl_api_completion(
+        _creds("glm-intl"), message="hi", model="glm-4-plus"))
+    assert pieces == ["a", "b"]
+    assert tracker.closed
+
+
+def test_chat_glm_intl_api_completion_closes_client(monkeypatch) -> None:
+    closed = {"v": False}
+
+    class _Client(_ClosableApiClient):
+        def close(self):  # exercise the wrapper-level close() branch
+            closed["v"] = True
+
+    monkeypatch.setattr(camoufox_module, "GLMIntlApiClient", _Client)
+    out = camoufox_module._chat_glm_intl_api_completion(
+        _creds("glm-intl"), message="hi", model="glm-4-plus")
+    assert out == "done"
+    assert closed["v"], "non-stream glm-intl api client must be closed"
 
 
 def test_stream_glm_intl_falls_back_to_dom_when_api_stream_startup_times_out(monkeypatch) -> None:
@@ -1531,6 +1610,42 @@ def test_fetch_doubao_browser_completion_matches_reference_request_shape() -> No
     assert request_body["conversation_id"] == "0"
     assert request_body["completion_option"]["need_create_conversation"] is True
     assert "model" not in request_body
+
+
+def test_fetch_doubao_browser_completion_raises_rate_limit_not_runtime_error() -> None:
+    """Doubao answers an anti-bot/throttle with HTTP 200 + a `710022004 rate
+    limited` body. The non-stream fetch must surface this as ProviderRateLimitError
+    so _chat_doubao fails fast with 429 instead of falling back to the DOM
+    composer (which hits the SAME limit and hangs until its 120s poll timeout —
+    the exact bug this guards against)."""
+    # The real upstream shape captured live: HTTP 200, SSE body with the throttle
+    # code and a `verify` decision.
+    rate_limited_body = (
+        'data: {"event_data":"{\\"code\\":710022004,\\"message\\":\\"rate limited\\",'
+        '\\"error_detail\\":{\\"code\\":710022004,\\"ext\\":{\\"decision\\":'
+        '\\"{\\\\\\"type\\\\\\":\\\\\\"verify\\\\\\"}\\"}}}"}\n'
+    )
+
+    class FakePage:
+        def evaluate(self, script: str, arg: dict[str, object]) -> dict[str, object]:
+            return {"ok": True, "status": 200, "text": rate_limited_body}
+
+    credentials = ProviderCredentialRecord(
+        provider="doubao", kind="browser_session", cookie="sessionid=s1",
+        headers={}, user_agent="ua", metadata={"sessionid": "s1"}, status="valid",
+    )
+    client = CamoufoxProviderClient("doubao", credentials)
+    session = _ProviderBrowserSession(
+        manager=object(), context=object(), page=object(), headless=True,
+        owner_thread=threading.current_thread(),
+        metadata={"doubao_conversation_id": "0", "doubao_request_params": {"aid": "497858"}},
+    )
+
+    with pytest.raises(ProviderRateLimitError):
+        _fetch_doubao_browser_completion(
+            FakePage(), session=session, client=client,
+            message="hi", model="doubao-pro",
+        )
 
 
 def test_chat_glm_cn_ignores_persisted_conversation_and_falls_back_to_dom_on_timeout(monkeypatch) -> None:
@@ -4564,7 +4679,15 @@ def test_chat_doubao_falls_back_to_dom_when_fetch_path_fails(monkeypatch) -> Non
     )
 
 
-def test_chat_doubao_falls_back_to_dom_when_fetch_path_hits_rate_limit(monkeypatch) -> None:
+def test_chat_doubao_fails_fast_on_rate_limit_without_dom_fallback(monkeypatch) -> None:
+    """When the API fetch path hits Doubao's anti-bot throttle/verify wall, the
+    DOM composer hits the SAME limit and _dom_send_and_wait_doubao would block on
+    its 120s `composer.wait_for` — a 120s hang per request (observed live). The
+    DOM fallback cannot recover from a rate-limit, so _chat_doubao must propagate
+    the ProviderRateLimitError (→ 429) immediately and NOT invoke the DOM path.
+
+    (Previously this test asserted the opposite — a DOM fallback on rate-limit —
+    which is exactly the behavior that produced the production hang.)"""
     credentials = ProviderCredentialRecord(
         provider="doubao",
         kind="browser_session",
@@ -4618,20 +4741,17 @@ def test_chat_doubao_falls_back_to_dom_when_fetch_path_hits_rate_limit(monkeypat
             ProviderRateLimitError("rate limited")
         ),
     )
+    dom_calls: list[str] = []
     monkeypatch.setattr(
         "opentoken.providers.camoufox_clients._dom_send_and_wait_doubao",
-        lambda page, session, client, message, model: "doubao-dom-rate-limit-ok",
+        lambda page, session, client, message, model: dom_calls.append("called") or "x",
     )
 
     client = CamoufoxProviderClient("doubao", credentials)
 
-    assert (
-        client._chat_doubao(
-            message="Reply with exactly: DOUBAO_DOM_RATE_LIMIT_OK",
-            model="doubao-seed-2.0",
-        )
-        == "doubao-dom-rate-limit-ok"
-    )
+    with pytest.raises(ProviderRateLimitError):
+        client._chat_doubao(message="hi", model="doubao-seed-2.0")
+    assert dom_calls == [], "DOM fallback must NOT run on a rate-limit (it hits the same wall)"
 
 
 def test_chat_glm_cn_falls_back_to_dom_when_fetch_path_requires_login(monkeypatch) -> None:

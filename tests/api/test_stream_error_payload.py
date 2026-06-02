@@ -70,3 +70,49 @@ def test_responses_stream_payload_runtime_error_uses_classifier():
 def test_responses_stream_payload_upstream_error_is_api_error_not_invalid_request():
     p = responses_payload(RuntimeError("DeepSeek chat completion returned no text content."))
     assert p["code"] == "api_error"
+
+
+# ── no upstream-URL/credential leak on mid-stream httpx errors ────────────────
+#
+# Once the SSE stream has started the HTTP status is already 200, so the error
+# event is the only signal — but str(httpx.HTTPStatusError) embeds the full
+# upstream URL (often with a session id in the query string). The non-stream
+# path scrubs this; the stream path must too.
+
+_LEAKY_URL = "https://chat.qwen.ai/api/v2/chat?session=SECRET-TOKEN-123"
+
+
+def _httpx_status_error_with_url() -> httpx.HTTPStatusError:
+    # Reproduce exactly how providers raise: response.raise_for_status() builds
+    # a message that embeds the full request URL (including the query string).
+    request = httpx.Request("POST", _LEAKY_URL)
+    response = httpx.Response(502, request=request)
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        assert "chat.qwen.ai" in str(exc)  # sanity: the leak source is present
+        return exc
+    raise AssertionError("raise_for_status did not raise")
+
+
+def test_chat_stream_payload_httpx_error_does_not_leak_upstream_url():
+    p = chat_payload(_httpx_status_error_with_url())
+    message = str(p["error"]["message"])
+    assert "chat.qwen.ai" not in message
+    assert "SECRET-TOKEN-123" not in message
+    assert "://" not in message  # no URL of any scheme leaked
+
+
+def test_responses_stream_payload_httpx_error_does_not_leak_upstream_url():
+    p = responses_payload(_httpx_status_error_with_url())
+    message = str(p["message"])
+    assert "chat.qwen.ai" not in message
+    assert "SECRET-TOKEN-123" not in message
+    assert "://" not in message  # no URL of any scheme leaked
+
+
+def test_chat_stream_payload_unexpected_exception_does_not_leak_internal_detail():
+    p = chat_payload(KeyError("/Users/secret/internal/path/state.json"))
+    message = str(p["error"]["message"])
+    assert "secret" not in message
+    assert p["error"]["type"] == "api_error"

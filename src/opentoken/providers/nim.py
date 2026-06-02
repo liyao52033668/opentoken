@@ -185,7 +185,9 @@ class NimChatAdapter(ProviderAdapter):
         body = response.json()
         choices = body.get("choices") or []
         if not isinstance(choices, list) or not choices:
-            raise RuntimeError(f"NIM returned no choices: {body}")
+            # Don't dump the raw upstream JSON body into the client-facing error
+            # (unbounded; may echo request/account detail).
+            raise RuntimeError("NIM returned no choices in the response.")
         choice = choices[0] if isinstance(choices[0], dict) else {}
         message = choice.get("message") or {}
         content = str(message.get("content") or "")

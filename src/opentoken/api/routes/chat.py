@@ -9,7 +9,11 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
-from opentoken.api.errors import classify_provider_runtime_error, openai_error_response
+from opentoken.api.errors import (
+    classify_provider_runtime_error,
+    classify_stream_error,
+    openai_error_response,
+)
 from opentoken.api.streaming import (
     ProtocolMarkupProjector,
     chunk_visible_text,
@@ -401,27 +405,15 @@ def _iter_stream_tool_call_deltas(
 
 
 def _stream_error_payload(exc: Exception) -> dict[str, object]:
-    if isinstance(exc, ProviderRateLimitError):
-        error_type = "rate_limit_error"
-    elif isinstance(exc, RuntimeError):
-        # Route through the shared classifier so an upstream 502 / session-
-        # expired / unsupported-model RuntimeError mid-stream gets the same
-        # OpenAI-shaped error.type as the non-stream path (which uses
-        # classify_provider_runtime_error too). The HTTP status is already 200
-        # because the SSE stream has started — error.type in the SSE event is
-        # the only signal the client gets, and labeling an upstream outage
-        # `invalid_request_error` (the old default) made clients silently
-        # treat it as their own request being malformed instead of retrying.
-        _status, error_type = classify_provider_runtime_error(exc)
-    elif isinstance(exc, httpx.HTTPError):
-        error_type = "api_error"
-    else:
-        # Other unexpected Exception subclasses — gateway-side problem, not
-        # a client validation issue, so api_error rather than invalid_request_error.
-        error_type = "api_error"
+    # classify_stream_error owns both the OpenAI error.type mapping AND the
+    # leak-scrubbing of the message: str(httpx.HTTPStatusError) embeds the
+    # upstream URL (+ possible session id), which the non-stream path scrubs and
+    # the stream path historically did not. Chat Completions wraps it in a
+    # nested "error" object.
+    error_type, message = classify_stream_error(exc)
     return {
         "error": {
-            "message": str(exc),
+            "message": message,
             "type": error_type,
         }
     }

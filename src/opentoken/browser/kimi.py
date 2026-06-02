@@ -30,8 +30,13 @@ def capture_kimi_browser_credentials(*, state_dir: Path) -> dict[str, str]:
             page.goto('https://www.kimi.com/', wait_until='domcontentloaded')
             user_agent = page.evaluate('() => navigator.userAgent')
 
-            print("Please login to Kimi and close the browser window when done.")
-            print("Waiting for browser to close (timeout 600s)...")
+            # flush=True: this CLI runs with stdout redirected (not a TTY) when
+            # launched in the background, where print() is block-buffered — the
+            # user never sees the instruction and has no idea the capture is
+            # waiting on them to close the window. Force a flush so the prompt
+            # appears immediately.
+            print("Please login to Kimi and close the browser window when done.", flush=True)
+            print("Waiting for browser to close (timeout 600s)...", flush=True)
 
             # 加 deadline —— 之前的 `while True` 如果浏览器没正常关闭（用户
             # Ctrl+C 不生效 / SSH session 被砍 / 进程被信号 trap）会永远挂住,

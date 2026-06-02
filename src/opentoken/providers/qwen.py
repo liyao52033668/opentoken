@@ -164,7 +164,6 @@ class QwenApiClient:
             ) as response:
                 content_type = str(response.headers.get("content-type", "")).lower()
                 if response.status_code == 401:
-                    body = response.read().decode("utf-8", errors="replace")
                     if allow_retry:
                         self._chat_id = None
                         yield from self._iter_chat_completion_text(
@@ -173,8 +172,14 @@ class QwenApiClient:
                             allow_retry=False,
                         )
                         return
-                    response.raise_for_status()
-                    raise RuntimeError(body[:300])
+                    # Do NOT surface the raw upstream 401 body — Qwen's auth-error
+                    # envelope can echo cookie/token fragments. Raise a clean,
+                    # actionable auth error (classifies as authentication_error via
+                    # the "session expired" / "opentoken login" signals).
+                    raise RuntimeError(
+                        "Qwen session expired or invalid (HTTP 401). Run "
+                        "`opentoken login qwen` to refresh the session."
+                    )
                 if "text/event-stream" not in content_type:
                     body = response.read().decode("utf-8", errors="replace")
                     if allow_retry and _qwen_payload_requires_fresh_chat(
@@ -230,8 +235,11 @@ class QwenApiClient:
             response_text = self._chat_completion_response_text(message=message, model=model)
             content, tool_calls, finish_reason = _parse_qwen_sse_response(response_text)
         if not content and not tool_calls:
+            # No raw upstream body in the client-facing message (it can carry
+            # session/token fragments); the generic phrasing still classifies as
+            # api_error.
             raise RuntimeError(
-                f"Qwen Intl chat completion returned no text content. Response: {response_text[:200]}"
+                "Qwen Intl chat completion returned no text content."
             )
         return ChatResponse(
             model=model,

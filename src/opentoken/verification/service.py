@@ -582,7 +582,12 @@ def _response_body(response: Any) -> str:
             body = response.content.decode("utf-8")
         except Exception:
             body = "<unreadable>"
-    return body.strip() or "<empty>"
+    body = body.strip() or "<empty>"
+    # Bound the upstream body that lands in verify output / regression reports:
+    # auth-error envelopes can be large and carry token/cookie fragments.
+    if len(body) > 300:
+        body = body[:300] + "…(truncated)"
+    return body
 
 
 def _failed_detail(name: str, detail: str) -> EndpointVerificationResult:

@@ -63,6 +63,22 @@ def test_nim_chat_returns_first_choice():
     assert response.finish_reason == "stop"
 
 
+def test_nim_chat_no_choices_error_does_not_leak_upstream_body():
+    """An empty-choices upstream response must NOT dump the raw JSON body (which
+    can echo request/account detail) into the client-facing error."""
+    secret_body = {"choices": [], "internal_account_id": "acct-SECRET-9999"}
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, json=secret_body)
+    )
+    adapter = NimChatAdapter(
+        client_factory=lambda credentials: httpx.Client(transport=transport, trust_env=False)
+    )
+    with pytest.raises(RuntimeError) as excinfo:
+        adapter.chat(_request(), _credentials())
+    assert "SECRET" not in str(excinfo.value)
+    assert "acct-" not in str(excinfo.value)
+
+
 def test_nim_chat_forwards_max_tokens_and_top_p():
     """max_tokens and top_p from the request must reach the NIM payload — they
     were silently dropped before NormalizedChatRequest modeled them."""

@@ -25,9 +25,12 @@ from opentoken.browser.common import (
 )
 from opentoken.config.paths import resolve_state_dir
 from opentoken.models.provider_credentials import ProviderCredentialRecord
+from opentoken.providers._client_cache import close_httpx_backed_client
 from opentoken.providers.base import ProviderRateLimitError
 from opentoken.providers.doubao import (
+    _DOUBAO_RATE_LIMIT_MESSAGE,
     DoubaoWebClient,
+    _doubao_payload_is_rate_limited,
     _extract_doubao_chunks_from_event,
     _extract_samantha_chunks,
     _parse_doubao_response_text,
@@ -548,15 +551,13 @@ class CamoufoxProviderClient:
                         model=model,
                     )
                 except ProviderRateLimitError:
-                    return _call_with_supported_kwargs(
-                        _dom_send_and_wait_doubao,
-                        page,
-                        session=session,
-                        client=self,
-                        message=message,
-                        model=model,
-                    )
+                    # Rate-limited / anti-bot verify: the DOM composer hits the
+                    # same limit and would hang until its 120s poll timeout.
+                    # Fail fast with 429 instead of falling back.
+                    raise
                 except RuntimeError:
+                    # Non-rate-limit failure (API shape drift, transient empty
+                    # body): the DOM path may still succeed.
                     return _call_with_supported_kwargs(
                         _dom_send_and_wait_doubao,
                         page,
@@ -2573,6 +2574,14 @@ def _fetch_doubao_browser_completion(
     content = _parse_doubao_response_text(payload).strip()
     if content:
         return content
+    # Doubao answers an anti-bot/throttle with HTTP 200 + a body carrying
+    # `710022004 rate limited` (often a `verify` decision). That is NOT a
+    # transient API-shape glitch the DOM composer can route around — the DOM
+    # send hits the SAME limit and the caller would otherwise sit in
+    # _dom_send_and_wait_doubao until its 120s poll timeout. Surface it as a
+    # rate-limit so _chat_doubao fails fast with 429 instead of hanging.
+    if _doubao_payload_is_rate_limited(payload):
+        raise ProviderRateLimitError(_DOUBAO_RATE_LIMIT_MESSAGE)
     status = response.get("status")
     if not response.get("ok"):
         raise RuntimeError(f"Doubao browser fetch failed: {status} {payload[:500]}")
@@ -4173,6 +4182,11 @@ def _stream_qwen_intl_api_completion(
     message: str,
     model: str,
 ) -> Iterator[str]:
+    # These one-shot api clients own a fresh httpx.Client that nothing else
+    # holds — unlike the adapter-level clients these are NOT pooled in a
+    # BoundedClientCache, so without an explicit close every call leaks the
+    # connection pool + its sockets. The try/finally closes it when the
+    # generator is exhausted, the consumer .close()s it, or it raises.
     client = QwenApiClient(
         credentials,
         base_url=_QWEN_INTL_BASE_URL,
@@ -4181,7 +4195,10 @@ def _stream_qwen_intl_api_completion(
             trust_env=False,
         ),
     )
-    yield from client.iter_chat_completion_text(message=message, model=model)
+    try:
+        yield from client.iter_chat_completion_text(message=message, model=model)
+    finally:
+        close_httpx_backed_client(client)
 
 
 def _chat_glm_intl_api_completion(
@@ -4191,7 +4208,10 @@ def _chat_glm_intl_api_completion(
     model: str,
 ) -> str:
     client = GLMIntlApiClient(credentials)
-    return client.chat_completion(message=message, model=model)
+    try:
+        return client.chat_completion(message=message, model=model)
+    finally:
+        close_httpx_backed_client(client)
 
 
 def _stream_glm_intl_api_completion(
@@ -4207,7 +4227,10 @@ def _stream_glm_intl_api_completion(
             trust_env=False,
         ),
     )
-    yield from client.iter_marked_chat_completion_text(message=message, model=model)
+    try:
+        yield from client.iter_marked_chat_completion_text(message=message, model=model)
+    finally:
+        close_httpx_backed_client(client)
 
 
 def _parse_ndjson_text(payload: str) -> str:
