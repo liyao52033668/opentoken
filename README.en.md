@@ -289,6 +289,8 @@ Atomic write (tmp + os.replace) + chmod 0600 — the patch contains the gateway 
 ./.venv/bin/pytest tests/storage/       # atomicity + permission tests
 ```
 
+`tests/` holds the offline unit suite (collected by `pytest`); `scripts/` holds the **live & stress scripts** that need real credentials/a running gateway (run standalone, not part of the unit suite): `live_provider_smoke.py`, `live_provider_200_suite.py`, `live_stream_regression.py`, `live_<provider>_200_cases.py`, `live_regression.py`, `live_doubao_regression.py`, `live_e2e_full.py`, `live_e2e_report.py`, `stress_test.py`. Their generated `*_report*.md` artifacts are gitignored.
+
 ## Git hygiene
 
 `.gitignore` already excludes `.venv/`, `.opentoken/`, `tmp/`, `*.log`. **Never commit** anything from `~/.opentoken/`, exported cookies/headers/tokens, `.env*`, or debug logs containing tokens. Always `git status` first; bail if any credential file is staged.

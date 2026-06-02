@@ -293,6 +293,8 @@ uv run opentoken config --opentoken-config /path/to/openclaw-config.json
 ./.venv/bin/pytest tests/storage/    # 存储原子性/权限
 ```
 
+`tests/` 是离线单测(被 `pytest` 收集);`scripts/` 放需要真实凭证/网关的 **live & 压测脚本**(独立运行,不进单测):`live_provider_smoke.py`、`live_provider_200_suite.py`、`live_stream_regression.py`、`live_<provider>_200_cases.py`、`live_regression.py`、`live_doubao_regression.py`、`live_e2e_full.py`、`live_e2e_report.py`、`stress_test.py`。它们生成的 `*_report*.md` 等产物已被 gitignore。
+
 ## Git 提交前安全注意
 
 `.gitignore` 已忽略 `.venv/`、`.opentoken/`、`tmp/`、`*.log`。**永远不要提交** `~/.opentoken/` 任何内容、导出的 cookie / token 文件、`.env*`、含 token 的调试日志。提交前先 `git status`，发现凭证文件就停。

@@ -15,8 +15,8 @@ from pathlib import Path
 
 import httpx
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+# Add src to path (repo root is the parent of scripts/)
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from opentoken.api.app import create_app
 from opentoken.config.paths import resolve_state_dir
