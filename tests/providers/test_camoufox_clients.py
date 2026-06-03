@@ -488,7 +488,10 @@ def test_stream_glm_intl_api_completion_uses_fast_fail_http_timeout(monkeypatch)
     timeout = captured["client"].timeout
     assert isinstance(timeout, httpx.Timeout)
     assert timeout.connect == 6.0
-    assert timeout.read == 6.0
+    # read is the max inter-token gap; must be generous so reasoning/search
+    # pauses don't truncate the stream (a short read timeout cut answers
+    # mid-sentence). Fast fallback is owned by the startup timeout, not read.
+    assert timeout.read >= 60.0
 
 
 class _ClosableApiClient:
@@ -814,7 +817,8 @@ def test_stream_qwen_intl_api_completion_uses_fast_fail_http_timeout(monkeypatch
     timeout = captured["client"].timeout
     assert isinstance(timeout, httpx.Timeout)
     assert timeout.connect == 6.0
-    assert timeout.read == 12.0
+    # Generous read timeout so reasoning/search pauses don't truncate the stream.
+    assert timeout.read >= 60.0
 
 
 def test_stream_qwen_intl_falls_back_to_browser_stream_when_api_stream_fails(monkeypatch) -> None:

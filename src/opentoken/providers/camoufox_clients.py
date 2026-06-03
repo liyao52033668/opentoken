@@ -85,18 +85,29 @@ _GLM_INTL_URL = "https://chat.z.ai/"
 _DOUBAO_URL = "https://www.doubao.com/chat/"
 _GLM_INTL_API_STREAM_STARTUP_TIMEOUT_SECONDS = 4.0
 _GLM_INTL_DOM_BOOTSTRAP_TIMEOUT_MS = 10000
+# read = max gap BETWEEN streamed tokens before we treat the stream as dead.
+# This must accommodate legitimate mid-stream pauses — reasoning models and web
+# search can go silent for tens of seconds before the answer continues. A short
+# read timeout (was 6s) truncates those responses mid-sentence: _stream_glm_intl
+# re-raises once it has already yielded, so the client gets a half answer + an
+# error. The fast-fallback-to-browser decision is owned separately by
+# _GLM_INTL_API_STREAM_STARTUP_TIMEOUT_SECONDS (time to the FIRST token), so read
+# can be generous without slowing down the down-detection path.
 _GLM_INTL_API_STREAM_HTTP_TIMEOUT = httpx.Timeout(
     connect=6.0,
-    read=6.0,
+    read=60.0,
     write=20.0,
     pool=20.0,
 )
 _QWEN_INTL_API_STREAM_STARTUP_TIMEOUT_SECONDS = 8.0
 _QWEN_INTL_API_STREAM_MAX_ATTEMPTS = 2
 _QWEN_INTL_BROWSER_BOOTSTRAP_TIMEOUT_MS = 10000
+# See _GLM_INTL_API_STREAM_HTTP_TIMEOUT: read is the max inter-token gap, kept
+# generous so reasoning/search pauses don't truncate the stream mid-sentence.
+# Fast fallback is owned by _QWEN_INTL_API_STREAM_STARTUP_TIMEOUT_SECONDS.
 _QWEN_INTL_API_STREAM_HTTP_TIMEOUT = httpx.Timeout(
     connect=6.0,
-    read=12.0,
+    read=60.0,
     write=20.0,
     pool=20.0,
 )
