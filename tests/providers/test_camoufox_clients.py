@@ -35,7 +35,7 @@ from opentoken.providers.camoufox_clients import (
     _stream_doubao_dom_completion,
     _stream_glm_cn_browser_completion,
     _stream_glm_intl_dom_completion,
-    _stream_minimax_dom_completion,
+    _parse_minimax_sse_segments,
     _ProviderBrowserSession,
     _PROVIDER_GLOBAL_SESSIONS,
 )
@@ -402,40 +402,32 @@ def test_stream_glm_intl_dom_completion_does_not_truncate_on_midstream_search_pa
     assert full == "今天可以去公园散步。"
 
 
-def test_stream_minimax_dom_completion_streams_and_finishes_on_streaming_class_drop(monkeypatch) -> None:
-    """MiniMax's answer renders into .matrix-markdown, which carries a `streaming`
-    class while generating and drops it when done. The DOM stream must emit
-    incremental deltas and finish only after the class drops (with a short idle
-    confirm) — not truncate while still streaming."""
-    import opentoken.providers.camoufox_clients as cc
-
-    class FakePage:
-        def evaluate(self, script: str):
-            return 0
-
-    # New assistant node appears (count 0 -> 1), streams "杭州" -> "杭州是" ->
-    # "杭州是个好地方。" (streaming=True), then the streaming class drops and the
-    # text stays stable (generation complete).
-    snaps = iter(
+def test_parse_minimax_sse_segments_splits_thinking_and_answer() -> None:
+    """MiniMax's /message SSE delivers reasoning (thinking_content) and the
+    visible answer (msg_content) as incremental type:6 chunks. The parser must
+    concatenate each channel separately — DOM scraping was unreliable because the
+    agent UI removes the answer bubble during a web-search/tool step."""
+    sse = "\n".join(
         [
-            {"assistant_count": 1, "answer_text": "杭州", "streaming": True},
-            {"assistant_count": 1, "answer_text": "杭州是", "streaming": True},
-            {"assistant_count": 1, "answer_text": "杭州是个好地方。", "streaming": True},
-            {"assistant_count": 1, "answer_text": "杭州是个好地方。", "streaming": False},
-            {"assistant_count": 1, "answer_text": "杭州是个好地方。", "streaming": False},
-            {"assistant_count": 1, "answer_text": "杭州是个好地方。", "streaming": False},
+            'data:{"type":10}',
+            'data:{"type":2,"agent_message":{"role":"user","msg_content":"hi"}}',
+            'data:{"type":6,"agent_message_chunk":{"role":"assistant","thinking_content":"用户问"}}',
+            'data:{"type":6,"agent_message_chunk":{"role":"assistant","thinking_content":"天气"}}',
+            'data:{"type":6,"agent_message_chunk":{"role":"assistant","msg_content":"杭州"}}',
+            'data:{"type":6,"agent_message_chunk":{"role":"assistant","msg_content":"很美。"}}',
+            'data:{"type":6,"agent_message_chunk":{"role":"assistant","finish":true,"finish_reason":"stop"}}',
+            "data:[DONE]",
+            "garbage line, not data",
         ]
     )
-    monkeypatch.setattr(cc, "_wait_for_minimax_input_ready", lambda page, *, timeout_ms=120000: None)
-    monkeypatch.setattr(cc, "_send_minimax_dom_message", lambda page, *, message: None)
-    monkeypatch.setattr(cc, "_capture_minimax_dom_stream_state", lambda page: next(snaps))
+    thinking, answer = _parse_minimax_sse_segments(sse)
+    assert thinking == "用户问天气"
+    assert answer == "杭州很美。"
 
-    pieces = list(
-        _stream_minimax_dom_completion(
-            FakePage(), message="用一句话介绍杭州", poll_interval_seconds=0.0, timeout_seconds=5.0
-        )
-    )
-    assert "".join(pieces) == "杭州是个好地方。"
+
+def test_parse_minimax_sse_segments_handles_empty_and_malformed() -> None:
+    assert _parse_minimax_sse_segments("") == ("", "")
+    assert _parse_minimax_sse_segments("data:{bad json}\ndata:{\"type\":1}") == ("", "")
 
 
 def test_dom_send_and_wait_glm_intl_strips_think_markup(monkeypatch) -> None:

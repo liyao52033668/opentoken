@@ -87,10 +87,16 @@ class BrowserChatAdapter(ProviderAdapter):
                     model=model,
                 ),
             )
+            # No tools requested: this is a plain chat answer, not tagged tool
+            # protocol output. Parse non-strict so reasoning markup (a provider
+            # that emits <think>…</think> without a <final_answer> wrapper, e.g.
+            # MiniMax-M3) is salvaged to its visible text instead of raising
+            # "malformed strict tagged tool protocol output".
             parsed_content, tool_calls, finish_reason = parse_web_tool_response(
                 content,
                 available_tools=request.tools,
                 tool_choice=request.tool_choice,
+                strict=False,
             )
         return ChatResponse(
             model=request.model,

@@ -1435,7 +1435,7 @@ class CamoufoxProviderClient:
                             timeout=_MINIMAX_BROWSER_BOOTSTRAP_TIMEOUT_MS,
                         )
                     _restore_minimax_token(page, self._credentials)
-                    yield from _stream_minimax_dom_completion(page, message=message)
+                    yield from _stream_minimax_via_sse(page, message=message)
                 except Exception:
                     if not page_was_replaced:
                         _close_browser_session(self._provider)
@@ -5017,99 +5017,74 @@ def _send_minimax_dom_message(page, *, message: str) -> None:
     page.keyboard.press("Enter")
 
 
-def _capture_minimax_dom_stream_state(page) -> dict[str, object]:
-    # Target ONLY the outer answer container `.matrix-markdown.message-content`.
-    # The DOM also nests an inner `.matrix-markdown.matrix-markdown--shifted`
-    # with the SAME text, and the reasoning ("thinking") for the M3 model renders
-    # in its own transient node — selecting every `.matrix-markdown` made the
-    # "last" element oscillate between thinking/answer/nested copies, which the
-    # delta projector then re-appended (the answer came back duplicated dozens of
-    # times). The last `.message-content` is the stable answer bubble.
-    snapshot = page.evaluate(
-        """
-        () => {
-          const clean = (s) => (s || "")
-            .replace(/[\\u200B-\\u200D\\uFEFF]/g, "")
-            .replace(/\\s+/g, " ")
-            .trim();
-          const answers = Array.from(document.querySelectorAll('.matrix-markdown.message-content'))
-            .filter((node) => node.offsetParent !== null);
-          const last = answers[answers.length - 1] || null;
-          const answer = last ? clean(last.innerText || last.textContent || "") : "";
-          const streaming = Array.from(document.querySelectorAll('.matrix-markdown.streaming'))
-            .some((node) => node.offsetParent !== null);
-          return { assistant_count: answers.length, answer_text: answer, streaming };
-        }
-        """
-    )
-    if not isinstance(snapshot, dict):
-        return {"assistant_count": 0, "answer_text": "", "streaming": False}
-    return {
-        "assistant_count": int(snapshot.get("assistant_count") or 0),
-        "answer_text": str(snapshot.get("answer_text") or ""),
-        "streaming": bool(snapshot.get("streaming")),
-    }
+def _parse_minimax_sse_segments(raw: str) -> tuple[str, str]:
+    """Parse MiniMax's /message SSE into (thinking, answer).
+
+    The stream is `data:{...}` events; `type:6` agent_message_chunks carry either
+    `thinking_content` (the model's reasoning) or `msg_content` (the visible
+    answer), both delivered incrementally. We concatenate each channel. Scraping
+    the DOM was unreliable for this agent UI (the answer bubble vanishes during a
+    web-search/tool step), so the network stream is the source of truth.
+    """
+    thinking_parts: list[str] = []
+    answer_parts: list[str] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            event = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        chunk = event.get("agent_message_chunk")
+        if not isinstance(chunk, dict):
+            continue
+        thinking = chunk.get("thinking_content")
+        if isinstance(thinking, str) and thinking:
+            thinking_parts.append(thinking)
+        content = chunk.get("msg_content")
+        if isinstance(content, str) and content:
+            answer_parts.append(content)
+    return "".join(thinking_parts), "".join(answer_parts)
 
 
-def _stream_minimax_dom_completion(
+def _stream_minimax_via_sse(
     page,
     *,
     message: str,
-    poll_interval_seconds: float = 0.2,
-    timeout_seconds: float = 180.0,
+    timeout_ms: int = 180000,
 ) -> Iterator[str]:
+    """Send a message in the MiniMax web UI and capture its /message SSE.
+
+    Driving the UI lets the page sign the request (x-signature / yy are computed
+    in-page); we then read the response stream the app received. This is robust
+    to the agent UI's DOM (which rewrites/removes the answer bubble during tool
+    steps). Reasoning is wrapped in <think> per the gateway convention (streaming
+    keeps it, the non-stream path strips it).
+
+    Note: a tool-using turn (web search etc.) ends its first SSE with
+    finish_reason "toolUse" and only the preamble in msg_content — the full
+    agentic loop spans further requests. We return the first turn's content
+    rather than hang, so simple chats get the complete answer and agent tasks get
+    a fast partial instead of a timeout.
+    """
     _wait_for_minimax_input_ready(page)
-    before_count = int(
-        page.evaluate("() => document.querySelectorAll('.matrix-markdown.message-content').length || 0")
-    )
-    _send_minimax_dom_message(page, message=message)
-
-    # The M3 reasoning model rewrites the answer bubble in place (thinking text
-    # is shown then replaced by the final answer), so a delta-stream off the DOM
-    # is unreliable. Poll until generation completes, then emit the final answer
-    # once — the API layer re-chunks it for the client. Correct content beats a
-    # flaky token-by-token stream here.
-    final_answer = ""
-    last_answer = ""
-    last_change_at = time.monotonic()
-    saw_answer = False
-    saw_streaming = False
-    deadline = time.monotonic() + timeout_seconds
-
-    while time.monotonic() < deadline:
-        snapshot = _capture_minimax_dom_stream_state(page)
-        assistant_count = int(snapshot.get("assistant_count") or 0)
-        answer_text = str(snapshot.get("answer_text") or "").strip()
-        streaming = bool(snapshot.get("streaming"))
-
-        # Ignore the prior turn's bubble until our new answer node appears.
-        if assistant_count <= before_count and not streaming and not answer_text:
-            time.sleep(poll_interval_seconds)
-            continue
-
-        if streaming:
-            saw_streaming = True
-        if answer_text:
-            saw_answer = True
-            final_answer = answer_text
-
-        if answer_text == last_answer:
-            idle_seconds = time.monotonic() - last_change_at
-        else:
-            last_answer = answer_text
-            last_change_at = time.monotonic()
-            idle_seconds = 0.0
-
-        # Done when the answer bubble drops its `streaming` class and the text has
-        # settled for one poll; or, if that class is never seen, once the text has
-        # been idle far longer than any mid-answer/search pause.
-        if saw_answer and answer_text and saw_streaming and not streaming and idle_seconds > 0:
-            break
-        if saw_answer and answer_text and idle_seconds >= _MINIMAX_DOM_STREAM_IDLE_TIMEOUT_SECONDS:
-            break
-
-        time.sleep(poll_interval_seconds)
-
-    if not final_answer:
-        raise RuntimeError("MiniMax Agent DOM reply capture failed.")
-    yield final_answer
+    with page.expect_response(
+        lambda r: "/message" in r.url and r.request.method == "POST",
+        timeout=timeout_ms,
+    ) as response_info:
+        _send_minimax_dom_message(page, message=message)
+    response = response_info.value
+    raw = response.text()
+    thinking, answer = _parse_minimax_sse_segments(raw)
+    if not thinking and not answer:
+        raise RuntimeError("MiniMax Agent returned no content.")
+    if thinking:
+        yield "<think>"
+        yield thinking
+        yield "</think>"
+    if answer:
+        yield answer
