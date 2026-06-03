@@ -200,7 +200,7 @@ uv run python scripts/live_provider_smoke.py
 curl http://127.0.0.1:32117/v1/models -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY'
 ```
 
-模型 id 形如：`algae/qwen-intl/qwen3.6-plus`、`algae/deepseek/deepseek-chat`、`algae/nim/deepseek-ai/deepseek-r1`、`algae/unified/openrouter/anthropic/claude-3.5-sonnet`。`algae/` 是外部 OpenClaw 客户端的 namespace 标识（保留作为 wire-format 契约）。模型别名**大小写不敏感**。
+`/v1/models` 只列**裸名 `<provider>/<model>`** 一种格式：`qwen-intl/qwen3.7-plus`、`deepseek/deepseek-chat`、`nim/deepseek-ai/deepseek-r1`、`unified/openrouter/anthropic/claude-3.5-sonnet`。provider 段用于消歧（`glm-cn/glm-5` 与 `glm-intl/glm-5` 区分）。模型别名**大小写不敏感**。（旧的 `algae/<provider>/<model>` 命名空间形式仍被解析器接受,向后兼容,但不再列在 `/v1/models`。）
 
 **Chat Completions（流式）**：
 
@@ -209,7 +209,7 @@ curl http://127.0.0.1:32117/v1/chat/completions \
   -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY' \
   -H 'Content-Type: application/json' -N \
   -d '{
-    "model": "algae/qwen-intl/qwen3.6-plus",
+    "model": "qwen-intl/qwen3.7-plus",
     "stream": true,
     "messages": [{"role": "user", "content": "来一段3000字自我介绍"}]
   }'
@@ -227,7 +227,7 @@ SSE 协议约定：流式 chunk 完全对齐 OpenAI（`object=chat.completion.ch
 curl http://127.0.0.1:32117/v1/responses \
   -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY' \
   -H 'Content-Type: application/json' \
-  -d '{"model":"algae/qwen-intl/qwen3.6-plus","input":"你好，写一个摘要"}'
+  -d '{"model":"qwen-intl/qwen3.7-plus","input":"你好，写一个摘要"}'
 ```
 
 带 `previous_response_id` 续聊时，新请求里的 `instructions` 会被**置于上下文最前**而不是拼到历史尾部。`max_output_tokens` 自动映射到 `max_tokens`。**保存历史时 `<think>` 内容会被剥掉**——续聊不会把模型自己的推理草稿喂回去（成本翻倍 + 模型被自己干扰）。

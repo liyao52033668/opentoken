@@ -17,6 +17,21 @@ def test_models_endpoint_returns_openai_style_list() -> None:
         assert set(item.keys()) == {"id", "object", "owned_by"}
         assert item["object"] == "model"
         assert item["owned_by"] == "opentoken"
+        # ONE format only: bare `<provider>/<model>` — never the `algae/` prefix.
+        assert not item["id"].startswith("algae/"), item["id"]
+
+
+def test_models_endpoint_lists_only_bare_provider_model_ids() -> None:
+    """/v1/models must advertise a single, bare `<provider>/<model>` form — no
+    `algae/…` namespaced ids, and no namespace-less raw model names (which would
+    be ambiguous across providers, e.g. glm-5)."""
+    client = TestClient(create_app())
+    payload = client.get("/v1/models").json()
+    for item in payload["data"]:
+        mid = item["id"]
+        assert not mid.startswith("algae/"), mid
+        # at least one slash → it carries a provider segment
+        assert "/" in mid, mid
 
 
 def test_models_endpoint_omits_retired_or_duplicate_ids() -> None:
@@ -31,16 +46,16 @@ def test_models_endpoint_omits_retired_or_duplicate_ids() -> None:
     # live-discovered, they should not reappear unless a provider's upstream
     # explicitly lists them.
     retired = {
-        "algae/qwen-intl/qwen3.5-turbo",
-        "algae/qwen-cn/qwen3.5-plus",
-        "algae/qwen-cn/qwen3.5-turbo",
-        "algae/qwen-cn/Qwen3.5-Plus",
-        "algae/qwen-cn/Qwen3.5-Turbo",
-        "algae/doubao/doubao-lite",
-        "algae/glm-cn/glm-4",
-        "algae/glm-cn/glm-4-zero",
-        "algae/mimo/mimo-v2-pro",
-        "algae/mimo/xiaomimo-chat",
+        "qwen-intl/qwen3.5-turbo",
+        "qwen-cn/qwen3.5-plus",
+        "qwen-cn/qwen3.5-turbo",
+        "qwen-cn/Qwen3.5-Plus",
+        "qwen-cn/Qwen3.5-Turbo",
+        "doubao/doubao-lite",
+        "glm-cn/glm-4",
+        "glm-cn/glm-4-zero",
+        "mimo/mimo-v2-pro",
+        "mimo/xiaomimo-chat",
     }
 
     assert retired.isdisjoint(model_ids)

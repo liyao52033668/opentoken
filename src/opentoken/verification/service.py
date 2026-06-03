@@ -208,10 +208,12 @@ def render_verification_report(report: VerificationReport) -> str:
 
 
 def _default_provider_models() -> dict[str, str]:
+    # Use the bare `<provider>/<model>` id that /v1/models now advertises (and
+    # that the resolver accepts) so the models check matches the catalog listing.
     models: dict[str, str] = {}
     for entry in load_model_catalog():
         provider = entry.id.split("/", 2)[1]
-        models.setdefault(provider, entry.id)
+        models.setdefault(provider, entry.id.removeprefix("algae/"))
     return models
 
 

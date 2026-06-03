@@ -63,15 +63,18 @@ def build_openai_model_objects(
     *,
     providers_dir: Path | None = None,
 ) -> list[dict[str, str]]:
+    # /v1/models advertises ONE format: the bare `<provider>/<model>` id (the
+    # `algae/` namespace prefix is dropped). It stays unambiguous because the
+    # provider segment disambiguates collisions (glm-cn/glm-5 vs glm-intl/glm-5),
+    # and resolve_requested_model accepts it (and still accepts the legacy
+    # `algae/…` form for older clients).
     ordered: OrderedDict[str, dict[str, str]] = OrderedDict()
     for entry in entries:
-        ordered.setdefault(entry.id, entry.to_openai_dict())
-
-    for raw_model_id in _preferred_raw_model_ids(entries, providers_dir=providers_dir):
+        bare_id = entry.id.removeprefix("algae/")
         ordered.setdefault(
-            raw_model_id,
+            bare_id,
             {
-                "id": raw_model_id,
+                "id": bare_id,
                 "object": "model",
                 "owned_by": "opentoken",
             },
@@ -83,65 +86,35 @@ def build_openai_model_objects(
     return list(ordered.values())
 
 
-def _preferred_raw_model_ids(
-    entries: list[ModelCatalogEntry],
-    *,
-    providers_dir: Path | None = None,
-) -> list[str]:
-    ordered: OrderedDict[str, None] = OrderedDict()
-    for entry in entries:
-        raw_model_id = _split_entry(entry)[1]
-        resolved = resolve_requested_model(
-            raw_model_id,
-            providers_dir=providers_dir,
-            catalog=entries,
-        )
-        if resolved is None:
-            continue
-        if resolved.canonical_model != entry.id:
-            continue
-        ordered.setdefault(raw_model_id, None)
-    return list(ordered.keys())
-
-
 def _resolve_prefixed_model(model_ref: str) -> ResolvedModelRef | None:
     parts = model_ref.split("/")
+    # Accept both the namespaced wire form `algae/<provider>/<model…>` and the
+    # bare `<provider>/<model…>` form that /v1/models now advertises. In both,
+    # the model id may itself contain slashes (NIM / LiteLLM-unified, e.g.
+    # "deepseek-ai/deepseek-r1"), so everything after the provider segment is the
+    # upstream model id.
     if len(parts) >= 3 and parts[0] == "algae":
-        provider = resolve_provider_key(parts[1])
-        if provider is None:
-            return None
-        # Some providers (NIM, LiteLLM-style unified backends) embed slashes in
-        # their model ids themselves (e.g. "deepseek-ai/deepseek-r1"). Keep
-        # everything after the provider segment as the upstream model id — but
-        # reject empty segments ("algae/deepseek//foo", trailing slash
-        # "algae/deepseek/") which would otherwise yield a "/foo" or "" wire id
-        # that the adapter happily forwards instead of 404ing.
-        model_segments = parts[2:]
-        if any(not segment for segment in model_segments):
-            return None
-        provider_model = normalize_provider_model(provider, "/".join(model_segments))
-        if not provider_model:
-            return None
-        return ResolvedModelRef(
-            provider=provider,
-            provider_model=provider_model,
-            canonical_model=f"algae/{provider}/{provider_model}",
-        )
-    if len(parts) == 2:
-        provider = resolve_provider_key(parts[0])
-        if provider is None:
-            return None
-        if not parts[1]:
-            return None
-        provider_model = normalize_provider_model(provider, parts[1])
-        if not provider_model:
-            return None
-        return ResolvedModelRef(
-            provider=provider,
-            provider_model=provider_model,
-            canonical_model=f"algae/{provider}/{provider_model}",
-        )
-    return None
+        provider_segment, model_segments = parts[1], parts[2:]
+    elif len(parts) >= 2 and resolve_provider_key(parts[0]) is not None:
+        provider_segment, model_segments = parts[0], parts[1:]
+    else:
+        return None
+
+    provider = resolve_provider_key(provider_segment)
+    if provider is None:
+        return None
+    # Reject empty segments ("deepseek/", "deepseek//foo", "algae/deepseek/")
+    # which would otherwise forward a "/foo" or "" wire id instead of 404ing.
+    if any(not segment for segment in model_segments):
+        return None
+    provider_model = normalize_provider_model(provider, "/".join(model_segments))
+    if not provider_model:
+        return None
+    return ResolvedModelRef(
+        provider=provider,
+        provider_model=provider_model,
+        canonical_model=f"algae/{provider}/{provider_model}",
+    )
 
 
 def _find_raw_model_candidates(

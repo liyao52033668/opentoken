@@ -196,7 +196,7 @@ Runs non-stream + stream + `/v1/responses` against every logged-in provider; per
 curl http://127.0.0.1:32117/v1/models -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY'
 ```
 
-Model ids look like `algae/qwen-intl/qwen3.6-plus`, `algae/deepseek/deepseek-chat`, `algae/nim/deepseek-ai/deepseek-r1`, `algae/unified/openrouter/anthropic/claude-3.5-sonnet`. The `algae/` prefix is an external-client namespace tag (kept as a wire-format contract). Alias resolution is **case-insensitive**.
+`/v1/models` advertises a single **bare `<provider>/<model>`** format: `qwen-intl/qwen3.7-plus`, `deepseek/deepseek-chat`, `nim/deepseek-ai/deepseek-r1`, `unified/openrouter/anthropic/claude-3.5-sonnet`. The provider segment disambiguates collisions (`glm-cn/glm-5` vs `glm-intl/glm-5`). Alias resolution is **case-insensitive**. (The legacy `algae/<provider>/<model>` namespace form is still accepted by the resolver for backward compatibility, but is no longer listed in `/v1/models`.)
 
 **Chat Completions (streaming)**:
 
@@ -205,7 +205,7 @@ curl http://127.0.0.1:32117/v1/chat/completions \
   -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY' \
   -H 'Content-Type: application/json' -N \
   -d '{
-    "model": "algae/qwen-intl/qwen3.6-plus",
+    "model": "qwen-intl/qwen3.7-plus",
     "stream": true,
     "messages": [{"role": "user", "content": "Tell me about yourself"}]
   }'
@@ -223,7 +223,7 @@ SSE conventions: chunks match OpenAI exactly (`object=chat.completion.chunk`, fi
 curl http://127.0.0.1:32117/v1/responses \
   -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY' \
   -H 'Content-Type: application/json' \
-  -d '{"model":"algae/qwen-intl/qwen3.6-plus","input":"summarize this"}'
+  -d '{"model":"qwen-intl/qwen3.7-plus","input":"summarize this"}'
 ```
 
 When continuing via `previous_response_id`, the new request's `instructions` are **hoisted to the front** of the model context — otherwise the active system prompt would land after the entire prior conversation and be largely ignored. `max_output_tokens` maps onto the unified `max_tokens` field. **`<think>` content is stripped before history is saved** — `previous_response_id` continuations don't feed the model its own scratch reasoning back (cost would double and the model gets biased by its own draft).
