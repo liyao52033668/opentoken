@@ -98,6 +98,13 @@ _SUPPORTED_PROVIDERS: tuple[ProviderDefinition, ...] = (
         manual_auth=("cookie", "header"),
     ),
     ProviderDefinition(
+        key="minimax",
+        display_name="MiniMax Agent",
+        aliases=("minimax", "minimaxi", "hailuo", "海螺"),
+        login_modes=("manual", "browser"),
+        manual_auth=("cookie", "header"),
+    ),
+    ProviderDefinition(
         key="manus",
         display_name="Manus",
         aliases=("manus",),

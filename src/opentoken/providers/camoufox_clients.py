@@ -90,6 +90,15 @@ _GLM_INTL_DOM_BOOTSTRAP_TIMEOUT_MS = 10000
 # detected). Must comfortably exceed a mid-answer web-search/thinking pause, or
 # search queries get truncated at the preamble.
 _GLM_INTL_DOM_STREAM_IDLE_TIMEOUT_SECONDS = 12.0
+
+# MiniMax Agent (agent.minimaxi.com). Its API signs every request (x-signature /
+# yy headers computed in-page), so we drive the web UI via the DOM instead of
+# replaying the signed API. The answer renders into `.matrix-markdown`; the
+# element carries a `streaming` class while generating and drops it when done.
+_MINIMAX_URL = "https://agent.minimaxi.com/"
+_MINIMAX_BROWSER_BOOTSTRAP_TIMEOUT_MS = 60000
+_MINIMAX_DOM_STREAM_IDLE_TIMEOUT_SECONDS = 12.0
+_MINIMAX_TOKEN_LS_KEY = "_token"
 # read = max gap BETWEEN streamed tokens before we treat the stream as dead.
 # This must accommodate legitimate mid-stream pauses — reasoning models and web
 # search can go silent for tens of seconds before the answer continues. A short
@@ -176,6 +185,7 @@ class CamoufoxProviderClient:
             "grok": self._chat_grok,
             "glm-cn": self._chat_glm_cn,
             "glm-intl": self._chat_glm_intl,
+            "minimax": self._chat_minimax,
         }
         handler = dispatch.get(self._provider)
         if handler is None:
@@ -188,6 +198,7 @@ class CamoufoxProviderClient:
             "qwen-intl": self._stream_qwen_intl,
             "glm-cn": self._stream_glm_cn,
             "glm-intl": self._stream_glm_intl,
+            "minimax": self._stream_minimax,
         }
         handler = dispatch.get(self._provider)
         if handler is None:
@@ -1385,6 +1396,46 @@ class CamoufoxProviderClient:
                             timeout=_GLM_INTL_DOM_BOOTSTRAP_TIMEOUT_MS,
                         )
                     yield from _stream_glm_intl_dom_completion(page, message=message)
+                except Exception:
+                    if not page_was_replaced:
+                        _close_browser_session(self._provider)
+                    raise
+
+        return iterator()
+
+    def _chat_minimax(self, *, message: str, model: str) -> str:
+        return "".join(self._stream_minimax(message=message, model=model))
+
+    def _stream_minimax(self, *, message: str, model: str) -> Iterator[str]:
+        # MiniMax signs every API call in-page, so there is no replayable HTTP
+        # path — drive the agent.minimaxi.com web UI through the DOM. The login
+        # lives in the persistent profile; we re-seat the localStorage token in
+        # case the runtime profile was rebuilt.
+        def iterator() -> Iterator[str]:
+            with _provider_session_lock(self._provider):
+                session = _get_or_create_browser_session(
+                    provider=self._provider,
+                    state_dir=self._state_dir,
+                    headless=self._headless,
+                )
+                context = session.context
+                page = session.page
+                page_was_replaced = False
+                try:
+                    self._inject_cookie_string(context, (".minimaxi.com",))
+                    if _page_is_closed(page):
+                        page = context.pages[0] if getattr(context, "pages", []) else context.new_page()
+                        session.page = page
+                        page_was_replaced = True
+                    current_url = str(getattr(page, "url", ""))
+                    if "minimaxi.com" not in current_url:
+                        page.goto(
+                            _MINIMAX_URL,
+                            wait_until="domcontentloaded",
+                            timeout=_MINIMAX_BROWSER_BOOTSTRAP_TIMEOUT_MS,
+                        )
+                    _restore_minimax_token(page, self._credentials)
+                    yield from _stream_minimax_dom_completion(page, message=message)
                 except Exception:
                     if not page_was_replaced:
                         _close_browser_session(self._provider)
@@ -4914,3 +4965,151 @@ def _dom_send_and_wait_glm_intl(page, message: str) -> str:
     return _strip_glm_intl_think_markup(
         "".join(_stream_glm_intl_dom_completion(page, message=message))
     )
+
+
+# ─── MiniMax Agent (agent.minimaxi.com) DOM streaming ─────────────────────────
+
+
+def _restore_minimax_token(page, credentials) -> None:
+    """Re-seat the auth JWT into localStorage if the runtime profile lost it.
+
+    The persistent profile normally keeps `_token` from login, but the runtime
+    profile is a fresh copy and an expired/cleared entry would land us on the
+    sign-in wall. If a token is missing we set it and reload so the app picks it
+    up. Best-effort: a stale token just means the UI shows login, which surfaces
+    as a normal capture failure."""
+    token = str((getattr(credentials, "metadata", None) or {}).get("token") or "").strip()
+    if not token:
+        return
+    try:
+        present = bool(
+            page.evaluate(
+                "() => { try { return !!localStorage.getItem('_token'); } catch (e) { return false; } }"
+            )
+        )
+        if present:
+            return
+        page.evaluate(
+            "(t) => { try { localStorage.setItem('_token', t); } catch (e) {} }",
+            token,
+        )
+        page.reload(wait_until="domcontentloaded", timeout=_MINIMAX_BROWSER_BOOTSTRAP_TIMEOUT_MS)
+    except Exception:
+        pass
+
+
+def _wait_for_minimax_input_ready(page, *, timeout_ms: int = 120000) -> None:
+    page.wait_for_selector(
+        '.ProseMirror[contenteditable="true"], [contenteditable="true"], textarea',
+        state="visible",
+        timeout=timeout_ms,
+    )
+
+
+def _send_minimax_dom_message(page, *, message: str) -> None:
+    composer = page.locator('.ProseMirror[contenteditable="true"], [contenteditable="true"]').first
+    composer.wait_for(state="visible", timeout=120000)
+    composer.click(timeout=10000)
+    page.keyboard.press(_SELECT_ALL_CHORD)
+    page.keyboard.press("Backspace")
+    page.keyboard.type(message, delay=15)
+    page.wait_for_timeout(300)
+    page.keyboard.press("Enter")
+
+
+def _capture_minimax_dom_stream_state(page) -> dict[str, object]:
+    # Target ONLY the outer answer container `.matrix-markdown.message-content`.
+    # The DOM also nests an inner `.matrix-markdown.matrix-markdown--shifted`
+    # with the SAME text, and the reasoning ("thinking") for the M3 model renders
+    # in its own transient node — selecting every `.matrix-markdown` made the
+    # "last" element oscillate between thinking/answer/nested copies, which the
+    # delta projector then re-appended (the answer came back duplicated dozens of
+    # times). The last `.message-content` is the stable answer bubble.
+    snapshot = page.evaluate(
+        """
+        () => {
+          const clean = (s) => (s || "")
+            .replace(/[\\u200B-\\u200D\\uFEFF]/g, "")
+            .replace(/\\s+/g, " ")
+            .trim();
+          const answers = Array.from(document.querySelectorAll('.matrix-markdown.message-content'))
+            .filter((node) => node.offsetParent !== null);
+          const last = answers[answers.length - 1] || null;
+          const answer = last ? clean(last.innerText || last.textContent || "") : "";
+          const streaming = Array.from(document.querySelectorAll('.matrix-markdown.streaming'))
+            .some((node) => node.offsetParent !== null);
+          return { assistant_count: answers.length, answer_text: answer, streaming };
+        }
+        """
+    )
+    if not isinstance(snapshot, dict):
+        return {"assistant_count": 0, "answer_text": "", "streaming": False}
+    return {
+        "assistant_count": int(snapshot.get("assistant_count") or 0),
+        "answer_text": str(snapshot.get("answer_text") or ""),
+        "streaming": bool(snapshot.get("streaming")),
+    }
+
+
+def _stream_minimax_dom_completion(
+    page,
+    *,
+    message: str,
+    poll_interval_seconds: float = 0.2,
+    timeout_seconds: float = 180.0,
+) -> Iterator[str]:
+    _wait_for_minimax_input_ready(page)
+    before_count = int(
+        page.evaluate("() => document.querySelectorAll('.matrix-markdown.message-content').length || 0")
+    )
+    _send_minimax_dom_message(page, message=message)
+
+    # The M3 reasoning model rewrites the answer bubble in place (thinking text
+    # is shown then replaced by the final answer), so a delta-stream off the DOM
+    # is unreliable. Poll until generation completes, then emit the final answer
+    # once — the API layer re-chunks it for the client. Correct content beats a
+    # flaky token-by-token stream here.
+    final_answer = ""
+    last_answer = ""
+    last_change_at = time.monotonic()
+    saw_answer = False
+    saw_streaming = False
+    deadline = time.monotonic() + timeout_seconds
+
+    while time.monotonic() < deadline:
+        snapshot = _capture_minimax_dom_stream_state(page)
+        assistant_count = int(snapshot.get("assistant_count") or 0)
+        answer_text = str(snapshot.get("answer_text") or "").strip()
+        streaming = bool(snapshot.get("streaming"))
+
+        # Ignore the prior turn's bubble until our new answer node appears.
+        if assistant_count <= before_count and not streaming and not answer_text:
+            time.sleep(poll_interval_seconds)
+            continue
+
+        if streaming:
+            saw_streaming = True
+        if answer_text:
+            saw_answer = True
+            final_answer = answer_text
+
+        if answer_text == last_answer:
+            idle_seconds = time.monotonic() - last_change_at
+        else:
+            last_answer = answer_text
+            last_change_at = time.monotonic()
+            idle_seconds = 0.0
+
+        # Done when the answer bubble drops its `streaming` class and the text has
+        # settled for one poll; or, if that class is never seen, once the text has
+        # been idle far longer than any mid-answer/search pause.
+        if saw_answer and answer_text and saw_streaming and not streaming and idle_seconds > 0:
+            break
+        if saw_answer and answer_text and idle_seconds >= _MINIMAX_DOM_STREAM_IDLE_TIMEOUT_SECONDS:
+            break
+
+        time.sleep(poll_interval_seconds)
+
+    if not final_answer:
+        raise RuntimeError("MiniMax Agent DOM reply capture failed.")
+    yield final_answer

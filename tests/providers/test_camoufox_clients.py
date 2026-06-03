@@ -35,6 +35,7 @@ from opentoken.providers.camoufox_clients import (
     _stream_doubao_dom_completion,
     _stream_glm_cn_browser_completion,
     _stream_glm_intl_dom_completion,
+    _stream_minimax_dom_completion,
     _ProviderBrowserSession,
     _PROVIDER_GLOBAL_SESSIONS,
 )
@@ -399,6 +400,42 @@ def test_stream_glm_intl_dom_completion_does_not_truncate_on_midstream_search_pa
     full = "".join(pieces)
     # The continuation after the search pause must be captured, not truncated.
     assert full == "今天可以去公园散步。"
+
+
+def test_stream_minimax_dom_completion_streams_and_finishes_on_streaming_class_drop(monkeypatch) -> None:
+    """MiniMax's answer renders into .matrix-markdown, which carries a `streaming`
+    class while generating and drops it when done. The DOM stream must emit
+    incremental deltas and finish only after the class drops (with a short idle
+    confirm) — not truncate while still streaming."""
+    import opentoken.providers.camoufox_clients as cc
+
+    class FakePage:
+        def evaluate(self, script: str):
+            return 0
+
+    # New assistant node appears (count 0 -> 1), streams "杭州" -> "杭州是" ->
+    # "杭州是个好地方。" (streaming=True), then the streaming class drops and the
+    # text stays stable (generation complete).
+    snaps = iter(
+        [
+            {"assistant_count": 1, "answer_text": "杭州", "streaming": True},
+            {"assistant_count": 1, "answer_text": "杭州是", "streaming": True},
+            {"assistant_count": 1, "answer_text": "杭州是个好地方。", "streaming": True},
+            {"assistant_count": 1, "answer_text": "杭州是个好地方。", "streaming": False},
+            {"assistant_count": 1, "answer_text": "杭州是个好地方。", "streaming": False},
+            {"assistant_count": 1, "answer_text": "杭州是个好地方。", "streaming": False},
+        ]
+    )
+    monkeypatch.setattr(cc, "_wait_for_minimax_input_ready", lambda page, *, timeout_ms=120000: None)
+    monkeypatch.setattr(cc, "_send_minimax_dom_message", lambda page, *, message: None)
+    monkeypatch.setattr(cc, "_capture_minimax_dom_stream_state", lambda page: next(snaps))
+
+    pieces = list(
+        _stream_minimax_dom_completion(
+            FakePage(), message="用一句话介绍杭州", poll_interval_seconds=0.0, timeout_seconds=5.0
+        )
+    )
+    assert "".join(pieces) == "杭州是个好地方。"
 
 
 def test_dom_send_and_wait_glm_intl_strips_think_markup(monkeypatch) -> None:

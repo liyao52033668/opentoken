@@ -208,6 +208,7 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
     "glm-cn": ["glm-4-plus", "glm-4", "glm-4-think", "glm-4-zero"],
     "glm-intl": ["glm-4-plus", "glm-4-think"],
     "mimo": ["mimo-v2-pro", "xiaomimo-chat"],
+    "minimax": ["MiniMax-M3"],
     "manus": ["manus-1.6"],
 }
 

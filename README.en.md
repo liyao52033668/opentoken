@@ -18,7 +18,7 @@ If you use DeepSeek, Qwen, Kimi, Doubao, GLM, Claude, Gemini, ChatGPT, Grok, and
 
 ## Supported providers
 
-**Web sessions / browser-harvested (11)**: DeepSeek · Qwen International · Qwen China · Kimi · Claude · Doubao · ChatGPT · Gemini · Grok · GLM International · GLM China · Xiaomi Mimo.
+**Web sessions / browser-harvested (12)**: DeepSeek · Qwen International · Qwen China · Kimi · Claude · Doubao · ChatGPT · Gemini · Grok · GLM International · GLM China · Xiaomi Mimo · MiniMax Agent (agent.minimaxi.com / Hailuo; driven via the browser DOM, model MiniMax-M3).
 
 **Direct API keys (4)**:
 - **Manus** (official API)
@@ -114,6 +114,7 @@ uv run opentoken login chatgpt            --browser
 uv run opentoken login gemini             --browser
 uv run opentoken login grok               --browser
 uv run opentoken login mimo               --browser
+uv run opentoken login minimax            --browser
 ```
 
 Login is dry-run validated: if existing credentials still work, freshly captured ones must pass an authenticated probe before they replace the working pair. First-time login skips the probe. Browser captures also pass a basic sanity check — at least one of cookie / bearer / access_token / Authorization header must be non-empty, or the record is refused.
