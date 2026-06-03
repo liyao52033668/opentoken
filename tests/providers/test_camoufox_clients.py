@@ -359,6 +359,48 @@ def test_stream_glm_intl_dom_completion_waits_for_input_and_yields_incremental_p
     assert pieces == ["<think>", "分", "析", "</think>", "你", "好"]
 
 
+def test_stream_glm_intl_dom_completion_does_not_truncate_on_midstream_search_pause(monkeypatch) -> None:
+    """GLM web-search queries stream a short preamble, go SILENT for several
+    seconds while searching, then resume with the real answer. The old 0.2s
+    idle-break concluded "done" during that pause and truncated everything after
+    the preamble. Completion must instead wait for the regenerate button; a
+    stretch of unchanged snapshots (the search pause) must NOT end the stream."""
+
+    class FakePage:
+        def evaluate(self, script: str):
+            return 0
+
+    # Preamble, then the same text repeated many times (the search pause — far
+    # more than the old 4-poll/0.2s break), then the post-search continuation,
+    # then the regenerate button (genuine completion).
+    pause = [{"assistant_count": 1, "answer_text": "今天", "thinking_text": "", "regenerate_visible": False}] * 8
+    snapshots = iter(
+        [{"assistant_count": 1, "answer_text": "今天", "thinking_text": "", "regenerate_visible": False}]
+        + pause
+        + [
+            {"assistant_count": 1, "answer_text": "今天可以去公园散步。", "thinking_text": "", "regenerate_visible": False},
+            {"assistant_count": 1, "answer_text": "今天可以去公园散步。", "thinking_text": "", "regenerate_visible": True},
+            {"assistant_count": 1, "answer_text": "今天可以去公园散步。", "thinking_text": "", "regenerate_visible": True},
+        ]
+    )
+    monkeypatch.setattr(camoufox_module, "_prepare_glm_intl_dom_page", lambda page: None)
+    monkeypatch.setattr(camoufox_module, "_wait_for_glm_intl_input_ready", lambda page, *, timeout_ms=120000: None)
+    monkeypatch.setattr(camoufox_module, "_send_glm_intl_dom_message", lambda page, *, message: None)
+    monkeypatch.setattr(camoufox_module, "_capture_glm_intl_dom_stream_state", lambda page: next(snapshots))
+
+    pieces = list(
+        _stream_glm_intl_dom_completion(
+            page=FakePage(),
+            message="帮我查下今天有什么好玩的事儿",
+            poll_interval_seconds=0.0,
+            timeout_seconds=5.0,
+        )
+    )
+    full = "".join(pieces)
+    # The continuation after the search pause must be captured, not truncated.
+    assert full == "今天可以去公园散步。"
+
+
 def test_dom_send_and_wait_glm_intl_strips_think_markup(monkeypatch) -> None:
     monkeypatch.setattr(
         camoufox_module,

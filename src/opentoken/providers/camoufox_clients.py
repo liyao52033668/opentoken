@@ -85,6 +85,11 @@ _GLM_INTL_URL = "https://chat.z.ai/"
 _DOUBAO_URL = "https://www.doubao.com/chat/"
 _GLM_INTL_API_STREAM_STARTUP_TIMEOUT_SECONDS = 4.0
 _GLM_INTL_DOM_BOOTSTRAP_TIMEOUT_MS = 10000
+# How long the DOM answer text may stay completely unchanged before we conclude
+# the response is finished (only used when the regenerate-button signal is not
+# detected). Must comfortably exceed a mid-answer web-search/thinking pause, or
+# search queries get truncated at the preamble.
+_GLM_INTL_DOM_STREAM_IDLE_TIMEOUT_SECONDS = 12.0
 # read = max gap BETWEEN streamed tokens before we treat the stream as dead.
 # This must accommodate legitimate mid-stream pauses — reasoning models and web
 # search can go silent for tens of seconds before the answer continues. A short
@@ -4839,7 +4844,16 @@ def _stream_glm_intl_dom_completion(
     projector = _GLMIntlDomStreamProjector()
     last_answer = ""
     last_thinking = ""
-    stable_rounds = 0
+    # Idle detection is TIME-based, not poll-count based. The old code broke after
+    # `stable_rounds >= 4` polls × 0.05s = 0.2s of unchanged text — which truncated
+    # any answer where GLM paused mid-stream. Web-search queries are the worst case:
+    # GLM streams a short preamble, then goes silent for several seconds while it
+    # searches, then resumes with the real answer. A 0.2s idle window concluded the
+    # answer was "done" during that search pause and cut everything after the
+    # preamble. The reliable completion signal is the regenerate button (GLM renders
+    # it only when fully done); the pure-idle break is just a safety net for when
+    # that button isn't detected, so it must outlast any search/thinking pause.
+    last_change_at = time.monotonic()
     saw_output = False
     deadline = time.monotonic() + timeout_seconds
 
@@ -4860,21 +4874,30 @@ def _stream_glm_intl_dom_completion(
                 if piece:
                     yield piece
 
-        if answer_text == last_answer and thinking_text == last_thinking:
-            stable_rounds += 1
+        now = time.monotonic()
+        unchanged = answer_text == last_answer and thinking_text == last_thinking
+        if unchanged:
+            idle_seconds = now - last_change_at
         else:
             last_answer = answer_text
             last_thinking = thinking_text
-            stable_rounds = 0
+            last_change_at = now
+            idle_seconds = 0.0
 
+        # Primary, reliable completion signal: the regenerate button appears only
+        # when GLM has fully finished. One unchanged poll confirms it isn't a
+        # single transient frame.
         if (
             saw_output
             and answer_text
             and bool(snapshot.get("regenerate_visible"))
-            and stable_rounds >= 1
+            and unchanged
         ):
             break
-        if saw_output and answer_text and stable_rounds >= 4:
+        # Safety net (regenerate button never detected): the answer has been
+        # completely idle far longer than any plausible search/thinking pause, so
+        # treat it as done rather than polling until the overall deadline.
+        if saw_output and answer_text and idle_seconds >= _GLM_INTL_DOM_STREAM_IDLE_TIMEOUT_SECONDS:
             break
 
         time.sleep(poll_interval_seconds)
