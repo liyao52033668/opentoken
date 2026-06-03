@@ -41,6 +41,41 @@ _FALLBACK_MODELS: dict[str, list[tuple[str, str]]] = {
     "kimi": [("k2", "Kimi K2"), ("k1", "Kimi K1")],
 }
 
+# Providers expose their FULL backend model registry (via the page payload /
+# /api/models), not just the handful a user can actually pick in the UI. That
+# registry is full of internal/preview/dated/parameter-sized variants
+# (qwen3.5-397b-a17b, qwen-latest-series-invite-beta-v24, 0727-106B-API,
+# glm-4-air-250414, …). Listing them all in /v1/models is exactly the "a pile of
+# preset junk" complaint — they aren't selectable and pollute the catalog. Drop
+# anything that smells like an internal build so /v1/models reflects the
+# user-facing lineup. Conservative by design: real ids (qwen3.7-plus, GLM-5.1,
+# deepseek-chat, doubao-pro, Qwen3-Max …) match none of these.
+_INTERNAL_MODEL_PATTERNS = [
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"invite",                       # qwen-latest-series-invite-beta-v24
+        r"-beta(-|$)",                   # *-beta-v16
+        r"-preview$",                    # qwen3.6-plus-preview
+        r"-20\d{2}-\d{2}-\d{2}(-|$)",    # *-2026-03-08 dated snapshots
+        r"-\d{6}$",                      # glm-4-air-250414
+        r"\d{2,4}b(-a\d+b)?\b",          # 397b-a17b / 27b / 106B / 360B param sizes
+        r"-a\d+b\b",                     # -a3b MoE active-param tag
+        r"^\d{3,4}-",                    # 0727-... / 0808-... internal build prefixes
+        r"-(api|dr)$",                   # *-API / *-DR internal endpoints
+    )
+]
+
+
+def _is_internal_model_id(model_id: str) -> bool:
+    mid = (model_id or "").strip()
+    if not mid:
+        return True
+    return any(pattern.search(mid) for pattern in _INTERNAL_MODEL_PATTERNS)
+
+
+def _filter_user_facing_models(models: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    return [(mid, name) for mid, name in models if not _is_internal_model_id(mid)]
+
 _DISCOVERY_TTL_SECONDS = 60 * 60 * 6
 _QWEN_INTL_MODEL_PATTERN = re.compile(
     r'"id":"([A-Za-z0-9_.:-]+)"\s*,\s*"name":"([^"]+)"\s*,\s*"object":"model"'
@@ -943,6 +978,9 @@ def load_model_catalog(
             fallback_results[provider] = list(floor)
 
     for provider, models in {**cached_results, **discovered_results, **fallback_results}.items():
+        # Strip internal/preview/dated/param-sized builds so /v1/models shows the
+        # user-facing lineup instead of the raw backend registry dump.
+        models = _filter_user_facing_models(models)
         if not models:
             continue
         grouped_entries[provider] = _build_catalog_entries(provider, models)

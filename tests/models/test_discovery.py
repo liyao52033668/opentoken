@@ -442,3 +442,48 @@ def test_load_model_catalog_returns_at_deadline_despite_hung_discoverer(
         assert ids == ["algae/fast/f-1"]
     finally:
         release.set()
+
+
+def test_filter_user_facing_models_drops_internal_builds() -> None:
+    """The /v1/models catalog must show the user-facing lineup, not the raw
+    backend registry dump (internal/preview/dated/param-sized builds). This is
+    the 'pile of preset junk' the catalog used to leak for qwen-intl/glm-intl."""
+    from opentoken.models.discovery import _filter_user_facing_models, _is_internal_model_id
+
+    junk = [
+        "qwen-latest-series-invite-beta-v24",
+        "qwen3.5-397b-a17b",
+        "qwen3.5-122b-a10b",
+        "qwen3.6-35b-a3b",
+        "qwen3.5-27b",
+        "qwen3.5-max-2026-03-08",
+        "qwen3-max-2026-01-23",
+        "qwen3.6-plus-preview",
+        "0727-106B-API",
+        "0808-360B-DR",
+        "glm-4-air-250414",
+    ]
+    real = [
+        "qwen3.7-plus",
+        "qwen3.7-max",
+        "qwen3-coder-plus",
+        "qwen3-vl-plus",
+        "GLM-5.1",
+        "glm-5",
+        "glm-4.7",
+        "deepseek-chat",
+        "deepseek-reasoner",
+        "doubao-pro",
+        "Qwen3-Max",
+        "MiniMax-M3",
+        "k2",
+    ]
+    for mid in junk:
+        assert _is_internal_model_id(mid), f"should drop internal build: {mid}"
+    for mid in real:
+        assert not _is_internal_model_id(mid), f"should keep real model: {mid}"
+
+    mixed = [(m, m) for m in junk + real]
+    kept = {mid for mid, _ in _filter_user_facing_models(mixed)}
+    assert kept == set(real)
+    assert not (kept & set(junk))
