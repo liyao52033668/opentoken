@@ -5,6 +5,7 @@ import pytest
 from opentoken.gateway.normalized import NormalizedChatRequest
 from opentoken.providers.web_tool_calling import (
     build_web_tool_prompt,
+    complete_web_tool_roundtrip,
     parse_web_tool_response,
 )
 
@@ -220,6 +221,47 @@ def test_parse_web_tool_response_extracts_tagged_final_answer() -> None:
 def test_parse_web_tool_response_rejects_malformed_tagged_output_without_leaking_raw_thinking() -> None:
     with pytest.raises(RuntimeError, match="strict tagged tool protocol"):
         parse_web_tool_response("<think>Need tools.</think>Tool read_file does not exists.")
+
+
+def test_parse_web_tool_response_strict_false_salvages_think_plus_prose() -> None:
+    # The #1 real-world non-compliance: the model "thinks" then answers in plain
+    # prose WITHOUT a <final_answer> wrapper. strict=False must NOT hard-fail — it
+    # returns the visible answer (with the <think> block stripped, so the raw
+    # reasoning never leaks) and no tool_calls.
+    content, tool_calls, finish_reason = parse_web_tool_response(
+        "<think>用户问天气,要不要调用工具</think>北京今天晴,25度。",
+        strict=False,
+    )
+    assert content == "北京今天晴,25度。"
+    assert tool_calls == []
+    assert finish_reason == "stop"
+    assert "用户问天气" not in (content or "")  # reasoning must not leak
+
+
+def test_complete_web_tool_roundtrip_degrades_to_plain_answer_when_model_never_complies() -> None:
+    # A web model that never emits valid <tool_calls>/<final_answer> tags must not
+    # hard-fail the whole request (the bug Cherry Studio hit: "model returned
+    # malformed strict tagged tool protocol output"). After repair attempts are
+    # exhausted, the gateway degrades to the model's visible answer.
+    request = NormalizedChatRequest(
+        model="x",
+        messages=[{"role": "user", "content": "今天天气怎么样?"}],
+        tools=[{"type": "function", "function": {"name": "get_weather", "parameters": {"type": "object"}}}],
+        tool_choice="auto",
+    )
+    calls = {"n": 0}
+
+    def invoke(_prompt: str) -> str:
+        calls["n"] += 1
+        return "<think>我想想</think>北京今天晴,25度。"  # never protocol-compliant
+
+    content, tool_calls, finish_reason = complete_web_tool_roundtrip(
+        request, provider="qwen", invoke=invoke
+    )
+    assert tool_calls == []
+    assert finish_reason == "stop"
+    assert content == "北京今天晴,25度。"
+    assert calls["n"] >= 1
 
 
 def test_parse_web_tool_response_rejects_tool_call_when_tool_choice_is_none() -> None:

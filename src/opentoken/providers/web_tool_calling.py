@@ -196,7 +196,21 @@ def parse_web_tool_response(
     *,
     available_tools: list[dict[str, object]] | None = None,
     tool_choice: object = None,
+    strict: bool = True,
 ) -> tuple[str | None, list[dict[str, object]], str]:
+    """Parse a model's tagged tool-protocol output into (content, tool_calls, finish_reason).
+
+    strict=True (default): malformed protocol markup raises RuntimeError. This is
+    what drives complete_web_tool_roundtrip's repair loop — re-prompt the model to
+    fix its output.
+
+    strict=False: never hard-fail. If the model emitted protocol markup but no
+    valid terminal block (overwhelmingly common: a <think> block followed by an
+    unwrapped prose answer), salvage the visible answer — strip the <think>
+    reasoning and any loose protocol tags — and return it with no tool_calls. A
+    request the user is waiting on must not 500 just because the model didn't wrap
+    its answer in <final_answer>.
+    """
     normalized_choice = _normalize_tool_choice(tool_choice)
     effective_tools = _select_tools_for_choice(available_tools or [], normalized_choice)
 
@@ -221,8 +235,14 @@ def parse_web_tool_response(
     if parsed is None:
         sanitized = _sanitize_plain_response(payload)
         if strict_error is not None or _contains_protocol_markup(payload):
-            detail = str(strict_error) if strict_error is not None else "malformed strict tagged tool protocol output"
-            raise RuntimeError(f"model returned malformed strict tagged tool protocol output: {detail}")
+            if strict:
+                detail = str(strict_error) if strict_error is not None else "malformed strict tagged tool protocol output"
+                raise RuntimeError(f"model returned malformed strict tagged tool protocol output: {detail}")
+            # Graceful degradation: drop <think> reasoning + loose protocol tags,
+            # return the model's visible prose answer. Reasoning is stripped so it
+            # never leaks to the client.
+            salvaged = _strip_loose_protocol_tags(_THINK_BLOCK_REGEX.sub("", payload)).strip()
+            return (salvaged or None, [], "stop")
         parsed = (sanitized or None, [], "stop")
 
     content, tool_calls, finish_reason = parsed
@@ -275,7 +295,15 @@ def complete_web_tool_roundtrip(
             return parsed
         except RuntimeError as exc:
             if attempts >= max_repair_attempts:
-                raise
+                # Repairs exhausted — the model won't produce valid protocol
+                # output. Degrade to its visible answer instead of hard-failing
+                # the request with "malformed strict tagged tool protocol output".
+                return parse_web_tool_response(
+                    payload,
+                    available_tools=request.tools,
+                    tool_choice=request.tool_choice,
+                    strict=False,
+                )
             attempts += 1
             payload = str(
                 invoke(
