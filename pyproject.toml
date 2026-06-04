@@ -33,6 +33,7 @@ build-backend = 'hatchling.build'
 
 [tool.uv]
 package = true
+prerelease = "allow"
 
 [tool.pytest.ini_options]
 testpaths = ['tests']
