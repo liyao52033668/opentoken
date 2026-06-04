@@ -97,7 +97,6 @@ _GLM_INTL_DOM_STREAM_IDLE_TIMEOUT_SECONDS = 12.0
 # element carries a `streaming` class while generating and drops it when done.
 _MINIMAX_URL = "https://agent.minimaxi.com/"
 _MINIMAX_BROWSER_BOOTSTRAP_TIMEOUT_MS = 60000
-_MINIMAX_DOM_STREAM_IDLE_TIMEOUT_SECONDS = 12.0
 _MINIMAX_TOKEN_LS_KEY = "_token"
 # read = max gap BETWEEN streamed tokens before we treat the stream as dead.
 # This must accommodate legitimate mid-stream pauses — reasoning models and web
@@ -1441,7 +1440,7 @@ class CamoufoxProviderClient:
                             timeout=_MINIMAX_BROWSER_BOOTSTRAP_TIMEOUT_MS,
                         )
                     _restore_minimax_token(page, self._credentials)
-                    yield from _stream_minimax_via_sse(page, message=message)
+                    yield from _stream_minimax_via_dom(page, message=message)
                 except Exception:
                     if not page_was_replaced:
                         _close_browser_session(self._provider)
@@ -5023,74 +5022,100 @@ def _send_minimax_dom_message(page, *, message: str) -> None:
     page.keyboard.press("Enter")
 
 
-def _parse_minimax_sse_segments(raw: str) -> tuple[str, str]:
-    """Parse MiniMax's /message SSE into (thinking, answer).
-
-    The stream is `data:{...}` events; `type:6` agent_message_chunks carry either
-    `thinking_content` (the model's reasoning) or `msg_content` (the visible
-    answer), both delivered incrementally. We concatenate each channel. Scraping
-    the DOM was unreliable for this agent UI (the answer bubble vanishes during a
-    web-search/tool step), so the network stream is the source of truth.
-    """
-    thinking_parts: list[str] = []
-    answer_parts: list[str] = []
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line.startswith("data:"):
-            continue
-        payload = line[5:].strip()
-        if not payload or payload == "[DONE]":
-            continue
-        try:
-            event = json.loads(payload)
-        except json.JSONDecodeError:
-            continue
-        chunk = event.get("agent_message_chunk")
-        if not isinstance(chunk, dict):
-            continue
-        thinking = chunk.get("thinking_content")
-        if isinstance(thinking, str) and thinking:
-            thinking_parts.append(thinking)
-        content = chunk.get("msg_content")
-        if isinstance(content, str) and content:
-            answer_parts.append(content)
-    return "".join(thinking_parts), "".join(answer_parts)
+_MINIMAX_ANSWER_SELECTOR = '[class*="message-content"]'
+# A plain chat answer renders within a few seconds; allow generous headroom for
+# a slow first token, but fail rather than hang if nothing ever appears.
+_MINIMAX_DOM_FIRST_CONTENT_TIMEOUT_SECONDS = 90.0
+# Stop once the answer text has been stable this long. A genuinely streaming
+# answer never pauses this long mid-generation, so this fires just after the
+# real end — unlike the old approach that blocked until the SSE connection (which
+# this agent platform holds open long after the reply renders) finally closed.
+_MINIMAX_DOM_ANSWER_IDLE_SECONDS = 5.0
 
 
-def _stream_minimax_via_sse(
+def _count_minimax_answers(page) -> int:
+    try:
+        return int(
+            page.evaluate(
+                "(sel) => document.querySelectorAll(sel).length",
+                _MINIMAX_ANSWER_SELECTOR,
+            )
+        )
+    except Exception:
+        return 0
+
+
+def _read_minimax_last_answer(page) -> str:
+    """innerText of the most recent assistant answer bubble (empty if none)."""
+    try:
+        return (
+            page.evaluate(
+                "(sel) => { const els = document.querySelectorAll(sel);"
+                " if (!els.length) return '';"
+                " return (els[els.length - 1].innerText || '').trim(); }",
+                _MINIMAX_ANSWER_SELECTOR,
+            )
+            or ""
+        )
+    except Exception:
+        return ""
+
+
+def _stream_minimax_via_dom(
     page,
     *,
     message: str,
     timeout_ms: int = 180000,
 ) -> Iterator[str]:
-    """Send a message in the MiniMax web UI and capture its /message SSE.
+    """Send a message in the MiniMax web UI and stream the answer from the DOM.
 
-    Driving the UI lets the page sign the request (x-signature / yy are computed
-    in-page); we then read the response stream the app received. This is robust
-    to the agent UI's DOM (which rewrites/removes the answer bubble during tool
-    steps). Reasoning is wrapped in <think> per the gateway convention (streaming
-    keeps it, the non-stream path strips it).
-
-    Note: a tool-using turn (web search etc.) ends its first SSE with
-    finish_reason "toolUse" and only the preamble in msg_content — the full
-    agentic loop spans further requests. We return the first turn's content
-    rather than hang, so simple chats get the complete answer and agent tasks get
-    a fast partial instead of a timeout.
+    MiniMax signs each request in-page and serves the answer over an SSE
+    connection it holds open long after the reply is rendered, so reading the
+    network body (response.text()) blocked until the full timeout on every turn.
+    The app also routes its fetch through a binding captured before any late hook
+    or add_init_script can intercept it, so the response stream is unreachable
+    from the page world. The rendered answer, however, appears in the DOM within
+    seconds — so we scrape the latest assistant bubble and stream its growth,
+    stopping after a short idle. This matches what the user sees on the page.
     """
     _wait_for_minimax_input_ready(page)
-    with page.expect_response(
-        lambda r: "/message" in r.url and r.request.method == "POST",
-        timeout=timeout_ms,
-    ) as response_info:
-        _send_minimax_dom_message(page, message=message)
-    response = response_info.value
-    raw = response.text()
-    thinking, answer = _parse_minimax_sse_segments(raw)
-    if not thinking and not answer:
+    baseline = _count_minimax_answers(page)
+    _send_minimax_dom_message(page, message=message)
+
+    deadline = time.monotonic() + timeout_ms / 1000.0
+    first_content_deadline = time.monotonic() + _MINIMAX_DOM_FIRST_CONTENT_TIMEOUT_SECONDS
+    emitted = ""
+    started = False
+    last_change = time.monotonic()
+
+    while True:
+        # Only read once a NEW assistant bubble has appeared for this turn.
+        has_new = _count_minimax_answers(page) > baseline
+        text = _read_minimax_last_answer(page) if has_new else ""
+
+        if text and text != emitted and text.startswith(emitted):
+            delta = text[len(emitted):]
+            if delta:
+                yield delta
+                emitted = text
+                started = True
+                last_change = time.monotonic()
+        elif text and text != emitted and not text.startswith(emitted):
+            # The bubble was rewritten (e.g. an agent step replaced it). We can't
+            # un-yield, so re-sync silently rather than duplicate content; the
+            # common plain-chat path only ever appends, so this is rare.
+            emitted = text
+            started = True
+            last_change = time.monotonic()
+
+        now = time.monotonic()
+        if started and (now - last_change) >= _MINIMAX_DOM_ANSWER_IDLE_SECONDS:
+            break
+        if not started and now >= first_content_deadline:
+            raise RuntimeError("MiniMax Agent produced no answer.")
+        if now >= deadline:
+            break
+        page.wait_for_timeout(300)
+
+    if not started or not emitted.strip():
         raise RuntimeError("MiniMax Agent returned no content.")
-    if thinking:
-        yield "<think>"
-        yield thinking
-        yield "</think>"
-    if answer:
-        yield answer

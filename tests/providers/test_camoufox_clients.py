@@ -35,7 +35,7 @@ from opentoken.providers.camoufox_clients import (
     _stream_doubao_dom_completion,
     _stream_glm_cn_browser_completion,
     _stream_glm_intl_dom_completion,
-    _parse_minimax_sse_segments,
+    _stream_minimax_via_dom,
     _ProviderBrowserSession,
     _PROVIDER_GLOBAL_SESSIONS,
 )
@@ -402,32 +402,69 @@ def test_stream_glm_intl_dom_completion_does_not_truncate_on_midstream_search_pa
     assert full == "今天可以去公园散步。"
 
 
-def test_parse_minimax_sse_segments_splits_thinking_and_answer() -> None:
-    """MiniMax's /message SSE delivers reasoning (thinking_content) and the
-    visible answer (msg_content) as incremental type:6 chunks. The parser must
-    concatenate each channel separately — DOM scraping was unreliable because the
-    agent UI removes the answer bubble during a web-search/tool step."""
-    sse = "\n".join(
-        [
-            'data:{"type":10}',
-            'data:{"type":2,"agent_message":{"role":"user","msg_content":"hi"}}',
-            'data:{"type":6,"agent_message_chunk":{"role":"assistant","thinking_content":"用户问"}}',
-            'data:{"type":6,"agent_message_chunk":{"role":"assistant","thinking_content":"天气"}}',
-            'data:{"type":6,"agent_message_chunk":{"role":"assistant","msg_content":"杭州"}}',
-            'data:{"type":6,"agent_message_chunk":{"role":"assistant","msg_content":"很美。"}}',
-            'data:{"type":6,"agent_message_chunk":{"role":"assistant","finish":true,"finish_reason":"stop"}}',
-            "data:[DONE]",
-            "garbage line, not data",
-        ]
+class _FakeMinimaxPage:
+    """A fake page whose answer bubble grows over successive polls.
+
+    `_stream_minimax_via_dom` reads the answer via two JS snippets: a count of
+    `.message-content` elements and the innerText of the last one. We dispatch on
+    substrings of the evaluated source and advance a scripted timeline each time
+    the answer text is read, so the streamed deltas can be asserted without a
+    real browser."""
+
+    def __init__(self, frames: list[str], *, baseline: int = 0) -> None:
+        self._frames = frames
+        self._baseline = baseline
+        self._idx = 0
+        self.sent: list[str] = []
+
+    def evaluate(self, script: str, *args):
+        if "querySelectorAll(sel).length" in script:
+            # New bubble exists once we've "sent"; count = baseline + 1.
+            return self._baseline + (1 if self.sent else 0)
+        if "innerText" in script:
+            frame = self._frames[min(self._idx, len(self._frames) - 1)]
+            self._idx += 1
+            return frame
+        return None
+
+    def wait_for_timeout(self, _ms: int) -> None:  # pragma: no cover - trivial
+        pass
+
+
+def test_stream_minimax_via_dom_streams_growth(monkeypatch) -> None:
+    """The DOM reader streams only the newly-appended suffix of the answer
+    bubble, reconstructing the full answer when the deltas are concatenated."""
+    page = _FakeMinimaxPage(["", "Hang", "Hangzhou", "Hangzhou is", "Hangzhou is nice."])
+    monkeypatch.setattr(camoufox_module, "_wait_for_minimax_input_ready", lambda *a, **k: None)
+    monkeypatch.setattr(
+        camoufox_module,
+        "_send_minimax_dom_message",
+        lambda page, *, message: page.sent.append(message),
     )
-    thinking, answer = _parse_minimax_sse_segments(sse)
-    assert thinking == "用户问天气"
-    assert answer == "杭州很美。"
+    # Tiny idle so completion fires shortly after the text stops growing; the
+    # fake's wait_for_timeout is a no-op, so all frames stream first.
+    monkeypatch.setattr(camoufox_module, "_MINIMAX_DOM_ANSWER_IDLE_SECONDS", 0.02)
+
+    chunks = list(_stream_minimax_via_dom(page, message="where?"))
+
+    assert page.sent == ["where?"]
+    assert "".join(chunks) == "Hangzhou is nice."
+    # Each chunk is a non-empty incremental delta, never a re-send of prior text.
+    assert all(chunks)
 
 
-def test_parse_minimax_sse_segments_handles_empty_and_malformed() -> None:
-    assert _parse_minimax_sse_segments("") == ("", "")
-    assert _parse_minimax_sse_segments("data:{bad json}\ndata:{\"type\":1}") == ("", "")
+def test_stream_minimax_via_dom_raises_when_no_answer(monkeypatch) -> None:
+    page = _FakeMinimaxPage([""])
+    monkeypatch.setattr(camoufox_module, "_wait_for_minimax_input_ready", lambda *a, **k: None)
+    monkeypatch.setattr(
+        camoufox_module,
+        "_send_minimax_dom_message",
+        lambda page, *, message: page.sent.append(message),
+    )
+    monkeypatch.setattr(camoufox_module, "_MINIMAX_DOM_FIRST_CONTENT_TIMEOUT_SECONDS", 0.0)
+
+    with pytest.raises(RuntimeError):
+        list(_stream_minimax_via_dom(page, message="hi"))
 
 
 def test_dom_send_and_wait_glm_intl_strips_think_markup(monkeypatch) -> None:
