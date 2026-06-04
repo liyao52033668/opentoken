@@ -403,21 +403,23 @@ def test_stream_glm_intl_dom_completion_does_not_truncate_on_midstream_search_pa
 
 
 class _FakeMinimaxPage:
-    """A fake page driven by a scripted timeline of (answer_text, generating).
+    """A fake page driven by a scripted timeline of ``(text, generating[, count])``.
 
     `_stream_minimax_via_dom` polls three JS snippets per loop: a count of
     `.message-content` elements, the innerText of the last one, and whether the
     stop ("停止生成") button is present. We dispatch on substrings of the evaluated
     source; the stop-button probe (called once per loop) advances the tick, so
-    count/text/generating within one loop all reflect the same tick."""
+    count/text/generating within one loop all reflect the same tick. A tick may
+    specify the bubble count explicitly to model a search turn where the bubble
+    is replaced (count climbs 1→0→2)."""
 
-    def __init__(self, ticks: list[tuple[str, bool]], *, baseline: int = 0) -> None:
+    def __init__(self, ticks: list[tuple], *, baseline: int = 0) -> None:
         self._ticks = ticks
         self._baseline = baseline
         self._t = 0
         self.sent: list[str] = []
 
-    def _tick(self) -> tuple[str, bool]:
+    def _tick(self) -> tuple:
         return self._ticks[min(self._t, len(self._ticks) - 1)]
 
     def evaluate(self, script: str, *args):
@@ -428,6 +430,9 @@ class _FakeMinimaxPage:
             self._t += 1  # advance the clock once per poll loop
             return generating
         if "querySelectorAll(sel).length" in script:
+            tk = self._tick()
+            if len(tk) >= 3:
+                return tk[2]
             return self._baseline + (1 if self.sent else 0)
         if "innerText" in script:
             return self._tick()[0]
@@ -455,6 +460,7 @@ def test_stream_minimax_via_dom_streams_growth_until_button_flips(monkeypatch) -
         "_send_minimax_dom_message",
         lambda page, *, message: page.sent.append(message),
     )
+    monkeypatch.setattr(camoufox_module, "_MINIMAX_DOM_DONE_QUIET_SECONDS", 0.02)
 
     chunks = list(_stream_minimax_via_dom(page, message="where?"))
 
@@ -462,6 +468,39 @@ def test_stream_minimax_via_dom_streams_growth_until_button_flips(monkeypatch) -
     assert "".join(chunks) == "Hangzhou is nice."
     # Each chunk is a non-empty incremental delta, never a re-send of prior text.
     assert all(chunks)
+
+
+def test_stream_minimax_via_dom_survives_search_bubble_swap(monkeypatch) -> None:
+    """A web-search turn replaces the assistant bubble (count 1→0→2) before the
+    real answer lands. The reader must NOT stop while generating, must follow the
+    new bubble, and must deliver both the preamble and the final answer."""
+    page = _FakeMinimaxPage(
+        [
+            ("", True, 0),
+            ("好的,我来查", True, 1),  # preamble bubble
+            ("好的,我来查", True, 0),  # bubble vanishes during the search step
+            ("", True, 2),  # a new (answer) bubble appears, still generating
+            ("今天", True, 2),
+            ("今天有市集", True, 2),
+            ("今天有市集和音乐节。", True, 2),
+            ("今天有市集和音乐节。", False, 2),  # done
+        ]
+    )
+    monkeypatch.setattr(camoufox_module, "_wait_for_minimax_input_ready", lambda *a, **k: None)
+    monkeypatch.setattr(
+        camoufox_module,
+        "_send_minimax_dom_message",
+        lambda page, *, message: page.sent.append(message),
+    )
+    monkeypatch.setattr(camoufox_module, "_MINIMAX_DOM_DONE_QUIET_SECONDS", 0.02)
+
+    chunks = list(_stream_minimax_via_dom(page, message="查点好玩的"))
+
+    joined = "".join(chunks)
+    assert "好的,我来查" in joined
+    assert "今天有市集和音乐节。" in joined
+    # The final answer is preserved intact (not truncated mid-search).
+    assert joined.endswith("今天有市集和音乐节。")
 
 
 def test_stream_minimax_via_dom_raises_when_no_answer(monkeypatch) -> None:

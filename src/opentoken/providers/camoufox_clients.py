@@ -5023,17 +5023,15 @@ def _send_minimax_dom_message(page, *, message: str) -> None:
 
 
 _MINIMAX_ANSWER_SELECTOR = '[class*="message-content"]'
-# A plain chat answer renders within a few seconds; allow generous headroom for
-# a slow first token, but fail rather than hang if nothing ever appears.
+# A plain chat answer renders within a few seconds; a web-search turn can take 30-60s
+# before any answer text. Allow generous headroom but fail rather than hang forever.
 _MINIMAX_DOM_FIRST_CONTENT_TIMEOUT_SECONDS = 90.0
-# Primary completion signal: the composer button shows "停止生成" (stop) while
-# generating and flips back to "发送消息" (send) the instant the answer is done —
-# so we finish exactly when the page does, no dead wait. Idle is only a fallback
-# for if that control ever changes.
-_MINIMAX_DOM_ANSWER_IDLE_SECONDS = 6.0
-# Grace before trusting "no stop button" as done when we never observed the stop
-# button (e.g. it appeared and vanished between polls).
-_MINIMAX_DOM_DONE_GRACE_SECONDS = 3.0
+# Completion: once answer content is flowing, finish when the page is no longer
+# "generating" (stop button gone) AND the text has been quiet this long. The stop
+# button alone is NOT trustworthy — during the pre-answer search/planning phase it
+# briefly flips back to "send" with no content, so we never trust it until content
+# has appeared, and we require a short quiet window to ride out mid-search lulls.
+_MINIMAX_DOM_DONE_QUIET_SECONDS = 2.5
 _MINIMAX_STOP_BUTTON_JS = (
     "() => { for (const b of document.querySelectorAll('button,[role=button]')) {"
     " const t = (b.getAttribute('aria-label') || b.innerText || '');"
@@ -5090,10 +5088,16 @@ def _stream_minimax_via_dom(
     network body (response.text()) blocked until the full timeout on every turn.
     The app also routes its fetch through a binding captured before any late hook
     or add_init_script can intercept it, so the response stream is unreachable
-    from the page world. The rendered answer, however, appears in the DOM within
-    seconds — so we scrape the latest assistant bubble and stream its growth,
-    finishing the moment the page's stop button flips back to send. This matches
-    what the user sees on the page (no dead wait).
+    from the page world. The rendered answer, however, appears in the DOM — so we
+    scrape the latest assistant bubble and stream its growth, finishing only when
+    the page's stop button flips back to send.
+
+    A web-search/agent turn is the hard case: the assistant bubble is replaced
+    several times (preamble → search step → final answer), so the message-content
+    count climbs 1→0→1→2 and the FINAL answer is a new element. We therefore
+    follow whichever bubble is current, emit a separator when a new one appears,
+    and — crucially — never stop while the stop button is still present, however
+    long the search runs.
     """
     _wait_for_minimax_input_ready(page)
     baseline = _count_minimax_answers(page)
@@ -5101,55 +5105,48 @@ def _stream_minimax_via_dom(
 
     deadline = time.monotonic() + timeout_ms / 1000.0
     first_content_deadline = time.monotonic() + _MINIMAX_DOM_FIRST_CONTENT_TIMEOUT_SECONDS
-    emitted = ""
-    started = False
+    emitted = ""            # text already emitted for the CURRENT bubble
+    any_emitted = False     # anything emitted across all bubbles this turn
     last_change = time.monotonic()
-    content_since: float | None = None
-    generating_seen = False
+    seen_count = baseline   # highest bubble count observed
 
     while True:
-        # Only read once a NEW assistant bubble has appeared for this turn.
-        has_new = _count_minimax_answers(page) > baseline
-        text = _read_minimax_last_answer(page) if has_new else ""
+        count = _count_minimax_answers(page)
+        # A new assistant bubble appeared (preamble → answer across a search step).
+        # Switch to it; separate it from prior emitted text so they don't merge.
+        if count > seen_count:
+            if any_emitted and emitted.strip():
+                yield "\n\n"
+            seen_count = count
+            emitted = ""
+        text = _read_minimax_last_answer(page) if count > baseline else ""
 
-        if text and text != emitted and text.startswith(emitted):
-            delta = text[len(emitted):]
+        if text and text != emitted:
+            # Append-only growth is the norm; on an in-place rewrite, re-sync to
+            # the new text (rare, and we cannot un-yield what already went out).
+            delta = text[len(emitted):] if text.startswith(emitted) else text
             if delta:
                 yield delta
                 emitted = text
-                started = True
+                any_emitted = True
                 last_change = time.monotonic()
-        elif text and text != emitted and not text.startswith(emitted):
-            # The bubble was rewritten (e.g. an agent step replaced it). We can't
-            # un-yield, so re-sync silently rather than duplicate content; the
-            # common plain-chat path only ever appends, so this is rare.
-            emitted = text
-            started = True
-            last_change = time.monotonic()
 
         now = time.monotonic()
-        if started and content_since is None:
-            content_since = now
         generating = _minimax_is_generating(page)
-        if generating:
-            generating_seen = True
 
-        # Primary completion: the stop button is gone after generation. Trust it
-        # once we've either watched the stop button appear, or waited a short
-        # grace since the first content (in case we missed the stop button).
-        if started and not generating and (
-            generating_seen
-            or (content_since is not None and now - content_since >= _MINIMAX_DOM_DONE_GRACE_SECONDS)
-        ):
+        # Completion: we have answer content, the page is no longer generating, and
+        # the text has been quiet for the done-window. We deliberately gate on
+        # any_emitted: during the pre-answer search/planning phase the stop button
+        # briefly flips to "send" with NO content, which must not be read as "done".
+        # The quiet window rides out short mid-search lulls and, if button detection
+        # ever breaks (always "not generating"), degrades to pure text-stability.
+        if any_emitted and not generating and (now - last_change) >= _MINIMAX_DOM_DONE_QUIET_SECONDS:
             break
-        # Fallback: answer text stable for the idle window (button detection failed).
-        if started and (now - last_change) >= _MINIMAX_DOM_ANSWER_IDLE_SECONDS:
-            break
-        if not started and now >= first_content_deadline:
+        if not any_emitted and now >= first_content_deadline:
             raise RuntimeError("MiniMax Agent produced no answer.")
         if now >= deadline:
             break
         page.wait_for_timeout(250)
 
-    if not started or not emitted.strip():
+    if not any_emitted:
         raise RuntimeError("MiniMax Agent returned no content.")
