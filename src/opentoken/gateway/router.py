@@ -110,6 +110,10 @@ class PoolAwareRouter:
                 provider_name="MiniMax Agent",
                 login_hint="opentoken login minimax",
                 client_factory=lambda credentials: CamoufoxProviderClient("minimax", credentials),
+                # MiniMax is an agent platform with its own tool system; it can't
+                # do the strict tagged tool protocol, so tool requests are served
+                # as a normal text answer rather than failing.
+                supports_web_tools=False,
             ),
         }
         for key, adapter in defaults.items():

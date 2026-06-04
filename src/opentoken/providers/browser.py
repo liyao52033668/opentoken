@@ -30,6 +30,7 @@ class BrowserChatAdapter(ProviderAdapter):
         login_hint: str,
         client_factory: Callable[[ProviderCredentialRecord], BrowserProviderClient],
         fallback_to_non_stream_chat_on_stream_failure: bool = True,
+        supports_web_tools: bool = True,
     ) -> None:
         self._provider_name = provider_name
         self._login_hint = login_hint
@@ -37,6 +38,12 @@ class BrowserChatAdapter(ProviderAdapter):
         self._fallback_to_non_stream_chat_on_stream_failure = (
             fallback_to_non_stream_chat_on_stream_failure
         )
+        # Some web UIs are agent platforms with their own (non-OpenAI) tool
+        # system and can't be coerced into the strict tagged tool protocol — the
+        # protocol prompt just confuses them (MiniMax). For those, ignore client
+        # `tools` and answer the user's prompt normally (a text answer with no
+        # tool_calls is a valid OpenAI response), instead of failing the request.
+        self._supports_web_tools = supports_web_tools
 
     def chat(
         self,
@@ -52,7 +59,7 @@ class BrowserChatAdapter(ProviderAdapter):
             credentials.provider,
             request.model.rsplit("/", 1)[-1],
         )
-        if request_uses_web_tools(request):
+        if request_uses_web_tools(request) and self._supports_web_tools:
             tool_invoke = getattr(client, "tool_chat_completion", None)
             parsed_content, tool_calls, finish_reason = complete_web_tool_roundtrip(
                 request,
@@ -110,7 +117,7 @@ class BrowserChatAdapter(ProviderAdapter):
         request: NormalizedChatRequest,
         credentials: ProviderCredentialRecord | None = None,
     ):
-        if credentials is None or request_uses_web_tools(request):
+        if credentials is None or (request_uses_web_tools(request) and self._supports_web_tools):
             return None
 
         client = self._client_factory(credentials)
