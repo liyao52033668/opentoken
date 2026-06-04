@@ -1,0 +1,4 @@
+name = "opentoken"
+main = "src/opentoken/mian.py"
+compatibility_flags = ["python_workers"]
+compatibility_date = "2026-06-04"
