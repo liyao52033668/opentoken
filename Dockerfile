@@ -50,6 +50,9 @@ COPY pyproject.toml uv.lock README.md config.yaml ./
 # Fetch Camoufox browser runtime into the image
 RUN /app/.venv/bin/python -m camoufox fetch
 
+# Initialize opentoken state directory
+RUN uv run opentoken onboard
+
 # Own everything by opentoken user
 RUN chown -R opentoken:opentoken /app
 
