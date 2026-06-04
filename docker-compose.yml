@@ -1,0 +1,16 @@
+services:
+  opentoken:
+    image: ghcr.io/liyao52033668/opentoken
+    container_name: opentoken
+    restart: unless-stopped
+    ports:
+      - "32117:32117"
+    volumes:
+      - opentoken-data:/app/data
+    # 如需配置代理，取消下面的注释
+    # environment:
+    #   HTTP_PROXY: http://your-proxy:7890
+    #   HTTPS_PROXY: http://your-proxy:7890
+
+volumes:
+  opentoken-data:
