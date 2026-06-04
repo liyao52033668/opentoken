@@ -13,7 +13,6 @@ from opentoken.browser.glm_intl import capture_glm_intl_browser_credentials
 from opentoken.browser.grok import capture_grok_browser_credentials
 from opentoken.browser.kimi import capture_kimi_browser_credentials
 from opentoken.browser.mimo import capture_mimo_browser_credentials
-from opentoken.browser.minimax import capture_minimax_browser_credentials
 from opentoken.browser.qwen import capture_qwen_browser_credentials
 from opentoken.browser.qwen_cn import capture_qwen_cn_browser_credentials
 
@@ -30,7 +29,6 @@ def capture_provider_browser_credentials(provider: str, *, state_dir: Path) -> d
         "grok": capture_grok_browser_credentials,
         "kimi": capture_kimi_browser_credentials,
         "mimo": capture_mimo_browser_credentials,
-        "minimax": capture_minimax_browser_credentials,
         "qwen-cn": capture_qwen_cn_browser_credentials,
         "qwen-intl": capture_qwen_browser_credentials,
     }

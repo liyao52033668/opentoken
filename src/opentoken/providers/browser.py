@@ -40,9 +40,9 @@ class BrowserChatAdapter(ProviderAdapter):
         )
         # Some web UIs are agent platforms with their own (non-OpenAI) tool
         # system and can't be coerced into the strict tagged tool protocol — the
-        # protocol prompt just confuses them (MiniMax). For those, ignore client
-        # `tools` and answer the user's prompt normally (a text answer with no
-        # tool_calls is a valid OpenAI response), instead of failing the request.
+        # protocol prompt just confuses them. For those, ignore client `tools` and
+        # answer the user's prompt normally (a text answer with no tool_calls is a
+        # valid OpenAI response), instead of failing the request.
         self._supports_web_tools = supports_web_tools
 
     def chat(
@@ -96,9 +96,9 @@ class BrowserChatAdapter(ProviderAdapter):
             )
             # No tools requested: this is a plain chat answer, not tagged tool
             # protocol output. Parse non-strict so reasoning markup (a provider
-            # that emits <think>…</think> without a <final_answer> wrapper, e.g.
-            # MiniMax-M3) is salvaged to its visible text instead of raising
-            # "malformed strict tagged tool protocol output".
+            # that emits <think>…</think> without a <final_answer> wrapper) is
+            # salvaged to its visible text instead of raising "malformed strict
+            # tagged tool protocol output".
             parsed_content, tool_calls, finish_reason = parse_web_tool_response(
                 content,
                 available_tools=request.tools,

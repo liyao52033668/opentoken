@@ -34,11 +34,11 @@ from opentoken.providers.web_tool_calling import parse_web_tool_response
 
 router = APIRouter()
 
-# Browser-backed providers can go silent for tens of seconds (e.g. MiniMax runs a
-# multi-step web search before emitting any answer text). With nothing on the
-# wire, OpenAI clients hit their read timeout and abort the request. We emit a
-# keepalive chunk on this cadence whenever the upstream stream is idle so the
-# connection stays alive until real content arrives.
+# Browser-backed providers can go silent for tens of seconds (e.g. a multi-step
+# web search runs before any answer text is emitted). With nothing on the wire,
+# OpenAI clients hit their read timeout and abort the request. We emit a keepalive
+# chunk on this cadence whenever the upstream stream is idle so the connection
+# stays alive until real content arrives.
 _STREAM_HEARTBEAT_SECONDS = 8.0
 
 

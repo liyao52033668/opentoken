@@ -91,13 +91,6 @@ _GLM_INTL_DOM_BOOTSTRAP_TIMEOUT_MS = 10000
 # search queries get truncated at the preamble.
 _GLM_INTL_DOM_STREAM_IDLE_TIMEOUT_SECONDS = 12.0
 
-# MiniMax Agent (agent.minimaxi.com). Its API signs every request (x-signature /
-# yy headers computed in-page), so we drive the web UI via the DOM instead of
-# replaying the signed API. The answer renders into `.matrix-markdown`; the
-# element carries a `streaming` class while generating and drops it when done.
-_MINIMAX_URL = "https://agent.minimaxi.com/"
-_MINIMAX_BROWSER_BOOTSTRAP_TIMEOUT_MS = 60000
-_MINIMAX_TOKEN_LS_KEY = "_token"
 # read = max gap BETWEEN streamed tokens before we treat the stream as dead.
 # This must accommodate legitimate mid-stream pauses — reasoning models and web
 # search can go silent for tens of seconds before the answer continues. A short
@@ -184,7 +177,6 @@ class CamoufoxProviderClient:
             "grok": self._chat_grok,
             "glm-cn": self._chat_glm_cn,
             "glm-intl": self._chat_glm_intl,
-            "minimax": self._chat_minimax,
         }
         handler = dispatch.get(self._provider)
         if handler is None:
@@ -197,7 +189,6 @@ class CamoufoxProviderClient:
             "qwen-intl": self._stream_qwen_intl,
             "glm-cn": self._stream_glm_cn,
             "glm-intl": self._stream_glm_intl,
-            "minimax": self._stream_minimax,
         }
         handler = dispatch.get(self._provider)
         if handler is None:
@@ -1401,46 +1392,6 @@ class CamoufoxProviderClient:
                             timeout=_GLM_INTL_DOM_BOOTSTRAP_TIMEOUT_MS,
                         )
                     yield from _stream_glm_intl_dom_completion(page, message=message)
-                except Exception:
-                    if not page_was_replaced:
-                        _close_browser_session(self._provider)
-                    raise
-
-        return iterator()
-
-    def _chat_minimax(self, *, message: str, model: str) -> str:
-        return "".join(self._stream_minimax(message=message, model=model))
-
-    def _stream_minimax(self, *, message: str, model: str) -> Iterator[str]:
-        # MiniMax signs every API call in-page, so there is no replayable HTTP
-        # path — drive the agent.minimaxi.com web UI through the DOM. The login
-        # lives in the persistent profile; we re-seat the localStorage token in
-        # case the runtime profile was rebuilt.
-        def iterator() -> Iterator[str]:
-            with _provider_session_lock(self._provider):
-                session = _get_or_create_browser_session(
-                    provider=self._provider,
-                    state_dir=self._state_dir,
-                    headless=self._headless,
-                )
-                context = session.context
-                page = session.page
-                page_was_replaced = False
-                try:
-                    self._inject_cookie_string(context, (".minimaxi.com",))
-                    if _page_is_closed(page):
-                        page = context.pages[0] if getattr(context, "pages", []) else context.new_page()
-                        session.page = page
-                        page_was_replaced = True
-                    current_url = str(getattr(page, "url", ""))
-                    if "minimaxi.com" not in current_url:
-                        page.goto(
-                            _MINIMAX_URL,
-                            wait_until="domcontentloaded",
-                            timeout=_MINIMAX_BROWSER_BOOTSTRAP_TIMEOUT_MS,
-                        )
-                    _restore_minimax_token(page, self._credentials)
-                    yield from _stream_minimax_via_dom(page, message=message)
                 except Exception:
                     if not page_was_replaced:
                         _close_browser_session(self._provider)
@@ -4970,183 +4921,3 @@ def _dom_send_and_wait_glm_intl(page, message: str) -> str:
     return _strip_glm_intl_think_markup(
         "".join(_stream_glm_intl_dom_completion(page, message=message))
     )
-
-
-# ─── MiniMax Agent (agent.minimaxi.com) DOM streaming ─────────────────────────
-
-
-def _restore_minimax_token(page, credentials) -> None:
-    """Re-seat the auth JWT into localStorage if the runtime profile lost it.
-
-    The persistent profile normally keeps `_token` from login, but the runtime
-    profile is a fresh copy and an expired/cleared entry would land us on the
-    sign-in wall. If a token is missing we set it and reload so the app picks it
-    up. Best-effort: a stale token just means the UI shows login, which surfaces
-    as a normal capture failure."""
-    token = str((getattr(credentials, "metadata", None) or {}).get("token") or "").strip()
-    if not token:
-        return
-    try:
-        present = bool(
-            page.evaluate(
-                "() => { try { return !!localStorage.getItem('_token'); } catch (e) { return false; } }"
-            )
-        )
-        if present:
-            return
-        page.evaluate(
-            "(t) => { try { localStorage.setItem('_token', t); } catch (e) {} }",
-            token,
-        )
-        page.reload(wait_until="domcontentloaded", timeout=_MINIMAX_BROWSER_BOOTSTRAP_TIMEOUT_MS)
-    except Exception:
-        pass
-
-
-def _wait_for_minimax_input_ready(page, *, timeout_ms: int = 120000) -> None:
-    page.wait_for_selector(
-        '.ProseMirror[contenteditable="true"], [contenteditable="true"], textarea',
-        state="visible",
-        timeout=timeout_ms,
-    )
-
-
-def _send_minimax_dom_message(page, *, message: str) -> None:
-    composer = page.locator('.ProseMirror[contenteditable="true"], [contenteditable="true"]').first
-    composer.wait_for(state="visible", timeout=120000)
-    composer.click(timeout=10000)
-    page.keyboard.press(_SELECT_ALL_CHORD)
-    page.keyboard.press("Backspace")
-    page.keyboard.type(message, delay=15)
-    page.wait_for_timeout(300)
-    page.keyboard.press("Enter")
-
-
-_MINIMAX_ANSWER_SELECTOR = '[class*="message-content"]'
-# A plain chat answer renders within a few seconds; a web-search turn can take 30-60s
-# before any answer text. Allow generous headroom but fail rather than hang forever.
-_MINIMAX_DOM_FIRST_CONTENT_TIMEOUT_SECONDS = 90.0
-# Completion: once answer content is flowing, finish when the page is no longer
-# "generating" (stop button gone) AND the text has been quiet this long. The stop
-# button alone is NOT trustworthy — during the pre-answer search/planning phase it
-# briefly flips back to "send" with no content, so we never trust it until content
-# has appeared, and we require a short quiet window to ride out mid-search lulls.
-_MINIMAX_DOM_DONE_QUIET_SECONDS = 2.5
-_MINIMAX_STOP_BUTTON_JS = (
-    "() => { for (const b of document.querySelectorAll('button,[role=button]')) {"
-    " const t = (b.getAttribute('aria-label') || b.innerText || '');"
-    " if (/停止|stop generating/i.test(t)) return true; } return false; }"
-)
-
-
-def _minimax_is_generating(page) -> bool:
-    """True while MiniMax is still generating (the stop button is present)."""
-    try:
-        return bool(page.evaluate(_MINIMAX_STOP_BUTTON_JS))
-    except Exception:
-        return False
-
-
-def _count_minimax_answers(page) -> int:
-    try:
-        return int(
-            page.evaluate(
-                "(sel) => document.querySelectorAll(sel).length",
-                _MINIMAX_ANSWER_SELECTOR,
-            )
-        )
-    except Exception:
-        return 0
-
-
-def _read_minimax_last_answer(page) -> str:
-    """innerText of the most recent assistant answer bubble (empty if none)."""
-    try:
-        return (
-            page.evaluate(
-                "(sel) => { const els = document.querySelectorAll(sel);"
-                " if (!els.length) return '';"
-                " return (els[els.length - 1].innerText || '').trim(); }",
-                _MINIMAX_ANSWER_SELECTOR,
-            )
-            or ""
-        )
-    except Exception:
-        return ""
-
-
-def _stream_minimax_via_dom(
-    page,
-    *,
-    message: str,
-    timeout_ms: int = 180000,
-) -> Iterator[str]:
-    """Send a message in the MiniMax web UI and stream the answer from the DOM.
-
-    MiniMax signs each request in-page and serves the answer over an SSE
-    connection it holds open long after the reply is rendered, so reading the
-    network body (response.text()) blocked until the full timeout on every turn.
-    The app also routes its fetch through a binding captured before any late hook
-    or add_init_script can intercept it, so the response stream is unreachable
-    from the page world. The rendered answer, however, appears in the DOM — so we
-    scrape the latest assistant bubble and stream its growth, finishing only when
-    the page's stop button flips back to send.
-
-    A web-search/agent turn is the hard case: the assistant bubble is replaced
-    several times (preamble → search step → final answer), so the message-content
-    count climbs 1→0→1→2 and the FINAL answer is a new element. We therefore
-    follow whichever bubble is current, emit a separator when a new one appears,
-    and — crucially — never stop while the stop button is still present, however
-    long the search runs.
-    """
-    _wait_for_minimax_input_ready(page)
-    baseline = _count_minimax_answers(page)
-    _send_minimax_dom_message(page, message=message)
-
-    deadline = time.monotonic() + timeout_ms / 1000.0
-    first_content_deadline = time.monotonic() + _MINIMAX_DOM_FIRST_CONTENT_TIMEOUT_SECONDS
-    emitted = ""            # text already emitted for the CURRENT bubble
-    any_emitted = False     # anything emitted across all bubbles this turn
-    last_change = time.monotonic()
-    seen_count = baseline   # highest bubble count observed
-
-    while True:
-        count = _count_minimax_answers(page)
-        # A new assistant bubble appeared (preamble → answer across a search step).
-        # Switch to it; separate it from prior emitted text so they don't merge.
-        if count > seen_count:
-            if any_emitted and emitted.strip():
-                yield "\n\n"
-            seen_count = count
-            emitted = ""
-        text = _read_minimax_last_answer(page) if count > baseline else ""
-
-        if text and text != emitted:
-            # Append-only growth is the norm; on an in-place rewrite, re-sync to
-            # the new text (rare, and we cannot un-yield what already went out).
-            delta = text[len(emitted):] if text.startswith(emitted) else text
-            if delta:
-                yield delta
-                emitted = text
-                any_emitted = True
-                last_change = time.monotonic()
-
-        now = time.monotonic()
-        generating = _minimax_is_generating(page)
-
-        # Completion: we have answer content, the page is no longer generating, and
-        # the text has been quiet for the done-window. We deliberately gate on
-        # any_emitted: during the pre-answer search/planning phase the stop button
-        # briefly flips to "send" with NO content, which must not be read as "done".
-        # The quiet window rides out short mid-search lulls and, if button detection
-        # ever breaks (always "not generating"), degrades to pure text-stability.
-        if any_emitted and not generating and (now - last_change) >= _MINIMAX_DOM_DONE_QUIET_SECONDS:
-            break
-        if not any_emitted and now >= first_content_deadline:
-            raise RuntimeError("MiniMax Agent produced no answer.")
-        if now >= deadline:
-            break
-        page.wait_for_timeout(250)
-
-    if not any_emitted:
-        raise RuntimeError("MiniMax Agent returned no content.")
