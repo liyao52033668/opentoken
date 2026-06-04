@@ -5026,11 +5026,27 @@ _MINIMAX_ANSWER_SELECTOR = '[class*="message-content"]'
 # A plain chat answer renders within a few seconds; allow generous headroom for
 # a slow first token, but fail rather than hang if nothing ever appears.
 _MINIMAX_DOM_FIRST_CONTENT_TIMEOUT_SECONDS = 90.0
-# Stop once the answer text has been stable this long. A genuinely streaming
-# answer never pauses this long mid-generation, so this fires just after the
-# real end — unlike the old approach that blocked until the SSE connection (which
-# this agent platform holds open long after the reply renders) finally closed.
-_MINIMAX_DOM_ANSWER_IDLE_SECONDS = 5.0
+# Primary completion signal: the composer button shows "停止生成" (stop) while
+# generating and flips back to "发送消息" (send) the instant the answer is done —
+# so we finish exactly when the page does, no dead wait. Idle is only a fallback
+# for if that control ever changes.
+_MINIMAX_DOM_ANSWER_IDLE_SECONDS = 6.0
+# Grace before trusting "no stop button" as done when we never observed the stop
+# button (e.g. it appeared and vanished between polls).
+_MINIMAX_DOM_DONE_GRACE_SECONDS = 3.0
+_MINIMAX_STOP_BUTTON_JS = (
+    "() => { for (const b of document.querySelectorAll('button,[role=button]')) {"
+    " const t = (b.getAttribute('aria-label') || b.innerText || '');"
+    " if (/停止|stop generating/i.test(t)) return true; } return false; }"
+)
+
+
+def _minimax_is_generating(page) -> bool:
+    """True while MiniMax is still generating (the stop button is present)."""
+    try:
+        return bool(page.evaluate(_MINIMAX_STOP_BUTTON_JS))
+    except Exception:
+        return False
 
 
 def _count_minimax_answers(page) -> int:
@@ -5076,7 +5092,8 @@ def _stream_minimax_via_dom(
     or add_init_script can intercept it, so the response stream is unreachable
     from the page world. The rendered answer, however, appears in the DOM within
     seconds — so we scrape the latest assistant bubble and stream its growth,
-    stopping after a short idle. This matches what the user sees on the page.
+    finishing the moment the page's stop button flips back to send. This matches
+    what the user sees on the page (no dead wait).
     """
     _wait_for_minimax_input_ready(page)
     baseline = _count_minimax_answers(page)
@@ -5087,6 +5104,8 @@ def _stream_minimax_via_dom(
     emitted = ""
     started = False
     last_change = time.monotonic()
+    content_since: float | None = None
+    generating_seen = False
 
     while True:
         # Only read once a NEW assistant bubble has appeared for this turn.
@@ -5109,13 +5128,28 @@ def _stream_minimax_via_dom(
             last_change = time.monotonic()
 
         now = time.monotonic()
+        if started and content_since is None:
+            content_since = now
+        generating = _minimax_is_generating(page)
+        if generating:
+            generating_seen = True
+
+        # Primary completion: the stop button is gone after generation. Trust it
+        # once we've either watched the stop button appear, or waited a short
+        # grace since the first content (in case we missed the stop button).
+        if started and not generating and (
+            generating_seen
+            or (content_since is not None and now - content_since >= _MINIMAX_DOM_DONE_GRACE_SECONDS)
+        ):
+            break
+        # Fallback: answer text stable for the idle window (button detection failed).
         if started and (now - last_change) >= _MINIMAX_DOM_ANSWER_IDLE_SECONDS:
             break
         if not started and now >= first_content_deadline:
             raise RuntimeError("MiniMax Agent produced no answer.")
         if now >= deadline:
             break
-        page.wait_for_timeout(300)
+        page.wait_for_timeout(250)
 
     if not started or not emitted.strip():
         raise RuntimeError("MiniMax Agent returned no content.")

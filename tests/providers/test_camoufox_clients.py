@@ -403,47 +403,58 @@ def test_stream_glm_intl_dom_completion_does_not_truncate_on_midstream_search_pa
 
 
 class _FakeMinimaxPage:
-    """A fake page whose answer bubble grows over successive polls.
+    """A fake page driven by a scripted timeline of (answer_text, generating).
 
-    `_stream_minimax_via_dom` reads the answer via two JS snippets: a count of
-    `.message-content` elements and the innerText of the last one. We dispatch on
-    substrings of the evaluated source and advance a scripted timeline each time
-    the answer text is read, so the streamed deltas can be asserted without a
-    real browser."""
+    `_stream_minimax_via_dom` polls three JS snippets per loop: a count of
+    `.message-content` elements, the innerText of the last one, and whether the
+    stop ("停止生成") button is present. We dispatch on substrings of the evaluated
+    source; the stop-button probe (called once per loop) advances the tick, so
+    count/text/generating within one loop all reflect the same tick."""
 
-    def __init__(self, frames: list[str], *, baseline: int = 0) -> None:
-        self._frames = frames
+    def __init__(self, ticks: list[tuple[str, bool]], *, baseline: int = 0) -> None:
+        self._ticks = ticks
         self._baseline = baseline
-        self._idx = 0
+        self._t = 0
         self.sent: list[str] = []
 
+    def _tick(self) -> tuple[str, bool]:
+        return self._ticks[min(self._t, len(self._ticks) - 1)]
+
     def evaluate(self, script: str, *args):
+        # Check the stop-button probe first: its JS also contains "innerText"
+        # (b.innerText), so it must not be mistaken for the answer-text read.
+        if "停止" in script or "stop generating" in script:
+            generating = self._tick()[1]
+            self._t += 1  # advance the clock once per poll loop
+            return generating
         if "querySelectorAll(sel).length" in script:
-            # New bubble exists once we've "sent"; count = baseline + 1.
             return self._baseline + (1 if self.sent else 0)
         if "innerText" in script:
-            frame = self._frames[min(self._idx, len(self._frames) - 1)]
-            self._idx += 1
-            return frame
+            return self._tick()[0]
         return None
 
     def wait_for_timeout(self, _ms: int) -> None:  # pragma: no cover - trivial
         pass
 
 
-def test_stream_minimax_via_dom_streams_growth(monkeypatch) -> None:
-    """The DOM reader streams only the newly-appended suffix of the answer
-    bubble, reconstructing the full answer when the deltas are concatenated."""
-    page = _FakeMinimaxPage(["", "Hang", "Hangzhou", "Hangzhou is", "Hangzhou is nice."])
+def test_stream_minimax_via_dom_streams_growth_until_button_flips(monkeypatch) -> None:
+    """The reader streams only the newly-appended suffix of the answer bubble and
+    finishes the instant the stop button flips back to send (no idle wait)."""
+    page = _FakeMinimaxPage(
+        [
+            ("", True),  # generating, no content yet
+            ("Hang", True),
+            ("Hangzhou", True),
+            ("Hangzhou is nice.", True),
+            ("Hangzhou is nice.", False),  # done: stop button gone
+        ]
+    )
     monkeypatch.setattr(camoufox_module, "_wait_for_minimax_input_ready", lambda *a, **k: None)
     monkeypatch.setattr(
         camoufox_module,
         "_send_minimax_dom_message",
         lambda page, *, message: page.sent.append(message),
     )
-    # Tiny idle so completion fires shortly after the text stops growing; the
-    # fake's wait_for_timeout is a no-op, so all frames stream first.
-    monkeypatch.setattr(camoufox_module, "_MINIMAX_DOM_ANSWER_IDLE_SECONDS", 0.02)
 
     chunks = list(_stream_minimax_via_dom(page, message="where?"))
 
@@ -454,7 +465,7 @@ def test_stream_minimax_via_dom_streams_growth(monkeypatch) -> None:
 
 
 def test_stream_minimax_via_dom_raises_when_no_answer(monkeypatch) -> None:
-    page = _FakeMinimaxPage([""])
+    page = _FakeMinimaxPage([("", False)])
     monkeypatch.setattr(camoufox_module, "_wait_for_minimax_input_ready", lambda *a, **k: None)
     monkeypatch.setattr(
         camoufox_module,
