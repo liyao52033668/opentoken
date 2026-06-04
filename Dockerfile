@@ -45,10 +45,10 @@ COPY --from=builder /build/.venv /app/.venv
 
 # Copy project source and dependency metadata
 COPY --from=builder /build/src /app/src
-COPY pyproject.toml uv.lock config.yaml ./
+COPY pyproject.toml uv.lock README.md config.yaml ./
 
 # Fetch Camoufox browser runtime into the image
-RUN uv run python -m camoufox fetch
+RUN /app/.venv/bin/python -m camoufox fetch
 
 # Own everything by opentoken user
 RUN chown -R opentoken:opentoken /app
