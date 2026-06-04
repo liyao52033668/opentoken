@@ -577,14 +577,15 @@ class CamoufoxProviderClient:
                         message=message,
                         model=model,
                     )
-                except ProviderRateLimitError:
-                    # Rate-limited / anti-bot verify: the DOM composer hits the
-                    # same limit and would hang until its 120s poll timeout.
-                    # Fail fast with 429 instead of falling back.
-                    raise
-                except RuntimeError:
-                    # Non-rate-limit failure (API shape drift, transient empty
-                    # body): the DOM path may still succeed.
+                except (ProviderRateLimitError, RuntimeError):
+                    # The programmatic in-page API fetch (/samantha/chat/completion)
+                    # is what Doubao's anti-bot rate-limits (710022004 + a `verify`
+                    # challenge). The human-like DOM path — type into the composer
+                    # and click send — issues the page's OWN properly-signed
+                    # request and gets through. (Verified: API fetch → 429 while
+                    # DOM compose+send returns a real answer.) So the API fetch is
+                    # just a fast-path optimization; on ANY failure (rate-limit or
+                    # API-shape drift) fall back to the DOM path.
                     return _call_with_supported_kwargs(
                         _dom_send_and_wait_doubao,
                         page,
@@ -646,9 +647,14 @@ class CamoufoxProviderClient:
                                     continue
                                 emitted_any = True
                                 yield piece
-                        except ProviderRateLimitError:
-                            raise
-                        except RuntimeError as exc:
+                        except (ProviderRateLimitError, RuntimeError) as exc:
+                            # Once bytes have been emitted we can't un-send them,
+                            # so a mid-stream failure must surface. But if NOTHING
+                            # was emitted yet, return the error so the caller falls
+                            # back to the other path. The in-page API stream is the
+                            # one Doubao anti-bot rate-limits (429); the DOM
+                            # compose+send path gets through, so a rate-limit on
+                            # the API attempt must fall through to DOM, not abort.
                             if emitted_any:
                                 raise
                             return emitted_any, exc
