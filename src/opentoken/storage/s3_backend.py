@@ -72,6 +72,8 @@ class S3Storage(StorageBackend):
         self._endpoint_url = endpoint_url
         self._region_name = region_name
         self._bucket_name = bucket_name
+        self._access_key = access_key
+        self._secret_key = secret_key
         self._prefix = prefix.rstrip("/") if prefix else ""
         self._signature_version = signature_version
         self._addressing_style = addressing_style
@@ -99,15 +101,12 @@ class S3Storage(StorageBackend):
             signature_version=self._signature_version,
             # S3 特定配置
             s3={
-                # 寻址样式 - 兼容 Cloudflare R2、MinIO 等服务
+                # 寻址样式 - 兼容 Cloudflare R2、MinIO、华为云等服务
                 "addressing_style": self._addressing_style,
-                # 内容 SHA256 签名 - 禁用可解决 XAmzContentSHA256Mismatch 错误
-                # 某些代理或负载均衡器可能会修改请求体导致哈希不匹配
-                "payload_signing_enabled": self._payload_signing,
             },
         )
 
-        return boto3.client(
+        client = boto3.client(
             "s3",
             endpoint_url=self._endpoint_url,
             region_name=self._region_name,
@@ -115,6 +114,35 @@ class S3Storage(StorageBackend):
             aws_secret_access_key=secret_key,
             config=config,
         )
+
+        # 禁用内容 SHA256 签名 - 解决 XAmzContentSHA256Mismatch 错误
+        # 某些代理或负载均衡器可能会修改请求体导致哈希不匹配
+        if not self._payload_signing:
+            # 方法1: 通过 monkey patch 禁用签名器的内容哈希计算
+            # 这是最直接有效的方法
+            try:
+                from botocore.signers import S3PostPresigner, RequestSigner
+                from botocore.auth import SigV4Auth
+
+                # 保存原始的签名方法
+                original_sign = SigV4Auth.sign
+
+                def patched_sign(self, request, **kwargs):
+                    # 在签名前移除 X-Amz-Content-Sha256 头或设置为空字符串
+                    if request.headers and 'X-Amz-Content-Sha256' in request.headers:
+                        del request.headers['X-Amz-Content-Sha256']
+                    return original_sign(self, request, **kwargs)
+
+                # 应用 patch
+                SigV4Auth.sign = patched_sign
+                logger.debug("Patched SigV4Auth.sign to remove X-Amz-Content-Sha256 header")
+            except Exception as e:
+                logger.debug(f"Failed to patch SigV4Auth: {e}")
+
+        logger.info(f"S3 client created with endpoint={self._endpoint_url}, region={self._region_name}, "
+                   f"addressing_style={self._addressing_style}, payload_signing={self._payload_signing}")
+
+        return client
 
     def _resolve_key(self, key: str) -> str:
         """将存储键解析为 S3 对象键。"""
@@ -142,16 +170,24 @@ class S3Storage(StorageBackend):
 
     def write_json(self, key: str, data: dict) -> None:
         s3_key = self._resolve_key(key)
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         try:
-            self._client.put_object(
+            # 尝试直接写入
+            response = self._client.put_object(
                 Bucket=self._bucket_name,
                 Key=s3_key,
-                Body=json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                Body=body,
                 ContentType="application/json",
             )
+            logger.debug(f"Successfully wrote JSON to S3: {key}, response: {response}")
         except Exception as e:
             logger.error(f"Failed to write JSON to S3: {key}, error: {e}")
-            raise
+            # 尝试使用不同的方法写入
+            if "XAmzContentSHA256Mismatch" in str(e):
+                logger.warning("XAmzContentSHA256Mismatch error detected, trying alternative method...")
+                self._write_without_content_hash(s3_key, body, "application/json")
+            else:
+                raise
 
     def read_bytes(self, key: str) -> bytes | None:
         s3_key = self._resolve_key(key)
@@ -169,14 +205,117 @@ class S3Storage(StorageBackend):
     def write_bytes(self, key: str, data: bytes) -> None:
         s3_key = self._resolve_key(key)
         try:
-            self._client.put_object(
+            # 尝试直接写入
+            response = self._client.put_object(
                 Bucket=self._bucket_name,
                 Key=s3_key,
                 Body=data,
                 ContentType="application/octet-stream",
             )
+            logger.debug(f"Successfully wrote bytes to S3: {key}, response: {response}")
         except Exception as e:
             logger.error(f"Failed to write bytes to S3: {key}, error: {e}")
+            # 尝试使用不同的方法写入
+            if "XAmzContentSHA256Mismatch" in str(e):
+                logger.warning("XAmzContentSHA256Mismatch error detected, trying alternative method...")
+                self._write_without_content_hash(s3_key, data, "application/octet-stream")
+            else:
+                raise
+
+    def _write_without_content_hash(self, s3_key: str, data: bytes, content_type: str) -> None:
+        """使用不计算内容哈希的方式写入数据。
+        
+        当遇到 XAmzContentSHA256Mismatch 错误时使用此方法。
+        此方法使用 HTTP PUT 请求直接上传，绕过 boto3 的签名机制。
+        """
+        import urllib3
+        import hashlib
+        import hmac
+        from base64 import b64encode
+        from datetime import datetime, timezone
+
+        try:
+            # 构建完整的 URL
+            if self._addressing_style == "path":
+                url = f"{self._endpoint_url}/{self._bucket_name}/{s3_key}"
+            else:
+                url = f"https://{self._bucket_name}.{self._endpoint_url.replace('https://', '').replace('http://', '')}/{s3_key}"
+
+            # 生成签名（简化版，不包含内容哈希）
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            date = timestamp[:8]
+            
+            # 构建签名字符串
+            credential_scope = f"{date}/{self._region_name}/s3/aws4_request"
+            
+            # 注意：这里不包含 X-Amz-Content-Sha256
+            headers = {
+                "Host": self._endpoint_url.replace('https://', '').replace('http://', ''),
+                "Content-Type": content_type,
+                "X-Amz-Date": timestamp,
+                "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+                "X-Amz-Credential": f"{self._access_key}/{credential_scope}",
+                "X-Amz-Expires": "3600",
+            }
+            
+            # 构建规范化的请求
+            sorted_headers = sorted(headers.keys())
+            canonical_headers = "\n".join(f"{k.lower()}:{headers[k]}" for k in sorted_headers) + "\n"
+            signed_headers = ";".join(k.lower() for k in sorted_headers)
+            
+            # 使用空的内容哈希（UNSIGNED-PAYLOAD）
+            payload_hash = "UNSIGNED-PAYLOAD"
+            
+            canonical_request = "\n".join([
+                "PUT",
+                f"/{self._bucket_name}/{s3_key}",
+                "",
+                canonical_headers,
+                signed_headers,
+                payload_hash
+            ])
+            
+            # 计算签名
+            def hmac_sha256(key: bytes, msg: str) -> bytes:
+                return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+            
+            k_date = hmac_sha256(f"AWS4{self._secret_key}".encode("utf-8"), date)
+            k_region = hmac_sha256(k_date, self._region_name)
+            k_service = hmac_sha256(k_region, "s3")
+            k_signing = hmac_sha256(k_service, "aws4_request")
+            
+            string_to_sign = "\n".join([
+                "AWS4-HMAC-SHA256",
+                timestamp,
+                credential_scope,
+                hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()
+            ])
+            
+            signature = hmac_sha256(k_signing, string_to_sign).hex()
+            
+            # 添加签名到请求头
+            headers["Authorization"] = (
+                f"AWS4-HMAC-SHA256 Credential={self._access_key}/{credential_scope}, "
+                f"SignedHeaders={signed_headers}, Signature={signature}"
+            )
+            
+            # 使用 urllib3 直接发送请求
+            http = urllib3.PoolManager()
+            response = http.request(
+                "PUT",
+                url,
+                body=data,
+                headers=headers,
+                timeout=urllib3.Timeout(connect=5, read=30)
+            )
+            
+            if response.status >= 400:
+                raise Exception(f"HTTP error {response.status}: {response.data.decode('utf-8')}")
+            
+            logger.info(f"Successfully wrote to S3 without content hash: {s3_key}")
+            
+        except Exception as e:
+            logger.error(f"Failed to write to S3 without content hash: {s3_key}, error: {e}")
             raise
 
     def delete(self, key: str) -> bool:
