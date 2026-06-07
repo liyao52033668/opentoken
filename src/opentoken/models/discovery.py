@@ -842,16 +842,6 @@ def _discover_unified_models(
     return _dedupe_models(models)
 
 
-def _discover_minimax_models(
-    _credentials: ProviderCredentialRecord,
-    _state_dir: Path,
-) -> list[tuple[str, str]]:
-    # agent.minimaxi.com signs every API call in-page, so its model registry
-    # isn't queryable over plain HTTP. Surface the chat model the web UI exposes;
-    # the gateway drives it through the browser DOM.
-    return [("MiniMax-M3", "MiniMax-M3")]
-
-
 _DISCOVERERS = {
     "deepseek": _discover_deepseek_models,
     "doubao": _discover_doubao_models,
@@ -865,7 +855,6 @@ _DISCOVERERS = {
     "gemini": _discover_gemini_models,
     "grok": _discover_grok_models,
     "mimo": _discover_mimo_models,
-    "minimax": _discover_minimax_models,
     "manus": _discover_manus_models,
     "nim": _discover_nim_models,
     "unified": _discover_unified_models,

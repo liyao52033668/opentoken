@@ -20,7 +20,7 @@ OpenToken 做的：(1) 凭证统一管理；(2) 本地 OpenAI 兼容 HTTP 接口
 
 ## 支持的 Provider
 
-**网页登录态 / 浏览器采集（12 个）**：DeepSeek · Qwen International · Qwen China · Kimi · Claude · Doubao · ChatGPT · Gemini · Grok · GLM International · GLM China · Xiaomi Mimo · MiniMax Agent（agent.minimaxi.com，海螺；通过浏览器 DOM 驱动，模型 MiniMax-M3）
+**网页登录态 / 浏览器采集（12 个）**：DeepSeek · Qwen International · Qwen China · Kimi · Claude · Doubao · ChatGPT · Gemini · Grok · GLM International · GLM China · Xiaomi Mimo
 
 **API key 直连（4 个）**：
 - **Manus**（官方 API）
@@ -184,7 +184,6 @@ uv run opentoken login chatgpt            --browser
 uv run opentoken login gemini             --browser
 uv run opentoken login grok               --browser
 uv run opentoken login mimo               --browser
-uv run opentoken login minimax            --browser
 ```
 
 登录有 dry-run 校验：旧凭证仍有效时，新捕获到的必须通过认证 probe 才能覆盖，避免半成 harvest 把可用 cookie 替换成坏的。首次登录跳过 probe。浏览器登录后还会做 basic sanity check：至少要有 cookie / bearer / access_token / Authorization header 中一项非空，否则直接拒收。

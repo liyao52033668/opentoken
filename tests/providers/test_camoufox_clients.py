@@ -35,7 +35,6 @@ from opentoken.providers.camoufox_clients import (
     _stream_doubao_dom_completion,
     _stream_glm_cn_browser_completion,
     _stream_glm_intl_dom_completion,
-    _parse_minimax_sse_segments,
     _ProviderBrowserSession,
     _PROVIDER_GLOBAL_SESSIONS,
 )
@@ -400,34 +399,6 @@ def test_stream_glm_intl_dom_completion_does_not_truncate_on_midstream_search_pa
     full = "".join(pieces)
     # The continuation after the search pause must be captured, not truncated.
     assert full == "今天可以去公园散步。"
-
-
-def test_parse_minimax_sse_segments_splits_thinking_and_answer() -> None:
-    """MiniMax's /message SSE delivers reasoning (thinking_content) and the
-    visible answer (msg_content) as incremental type:6 chunks. The parser must
-    concatenate each channel separately — DOM scraping was unreliable because the
-    agent UI removes the answer bubble during a web-search/tool step."""
-    sse = "\n".join(
-        [
-            'data:{"type":10}',
-            'data:{"type":2,"agent_message":{"role":"user","msg_content":"hi"}}',
-            'data:{"type":6,"agent_message_chunk":{"role":"assistant","thinking_content":"用户问"}}',
-            'data:{"type":6,"agent_message_chunk":{"role":"assistant","thinking_content":"天气"}}',
-            'data:{"type":6,"agent_message_chunk":{"role":"assistant","msg_content":"杭州"}}',
-            'data:{"type":6,"agent_message_chunk":{"role":"assistant","msg_content":"很美。"}}',
-            'data:{"type":6,"agent_message_chunk":{"role":"assistant","finish":true,"finish_reason":"stop"}}',
-            "data:[DONE]",
-            "garbage line, not data",
-        ]
-    )
-    thinking, answer = _parse_minimax_sse_segments(sse)
-    assert thinking == "用户问天气"
-    assert answer == "杭州很美。"
-
-
-def test_parse_minimax_sse_segments_handles_empty_and_malformed() -> None:
-    assert _parse_minimax_sse_segments("") == ("", "")
-    assert _parse_minimax_sse_segments("data:{bad json}\ndata:{\"type\":1}") == ("", "")
 
 
 def test_dom_send_and_wait_glm_intl_strips_think_markup(monkeypatch) -> None:
@@ -3286,7 +3257,7 @@ def test_stream_doubao_falls_back_to_dom_when_browser_stream_startup_times_out(m
     assert call_order == ["select:doubao-seed-2.0", "browser", "dom"]
 
 
-def test_stream_doubao_does_not_fallback_to_dom_when_browser_stream_rate_limited(monkeypatch) -> None:
+def test_stream_doubao_falls_back_to_dom_when_browser_stream_rate_limited(monkeypatch) -> None:
     credentials = ProviderCredentialRecord(
         provider="doubao",
         kind="browser_session",
@@ -3344,21 +3315,22 @@ def test_stream_doubao_does_not_fallback_to_dom_when_browser_stream_rate_limited
             or (_ for _ in ()).throw(ProviderRateLimitError("rate limited"))
         ),
     )
+    def _dom_stream(page, *, session, client, message, model, startup_timeout_seconds=None):
+        call_order.append("dom")
+        yield "杭州"
+        yield "很美。"
+
     monkeypatch.setattr(
         "opentoken.providers.camoufox_clients._stream_doubao_dom_completion",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("DOM fallback should not run after browser rate limit")
-        ),
+        _dom_stream,
     )
 
-    try:
-        list(client._stream_doubao(message="hello", model="doubao-seed-2.0"))
-    except ProviderRateLimitError as exc:
-        assert "rate limited" in str(exc)
-    else:
-        raise AssertionError("Expected ProviderRateLimitError")
-
-    assert call_order == ["select:doubao-seed-2.0", "browser"]
+    # The in-page API/browser stream is the path Doubao anti-bot rate-limits; the
+    # human-like DOM compose+send path gets through, so a 429 on the browser
+    # attempt MUST fall back to DOM (verified live: API 429 while DOM succeeds).
+    pieces = list(client._stream_doubao(message="hello", model="doubao-seed-2.0"))
+    assert "".join(pieces) == "杭州很美。"
+    assert "browser" in call_order and "dom" in call_order
 
 
 def test_stream_doubao_ignores_persisted_conversation_id(monkeypatch) -> None:
@@ -3683,7 +3655,7 @@ def test_stream_doubao_falls_back_to_browser_when_dom_stream_startup_times_out(m
     assert call_order == ["select:doubao-pro", "dom", "browser"]
 
 
-def test_stream_doubao_does_not_fallback_to_browser_when_dom_stream_rate_limited(monkeypatch) -> None:
+def test_stream_doubao_falls_back_to_browser_when_dom_stream_rate_limited(monkeypatch) -> None:
     credentials = ProviderCredentialRecord(
         provider="doubao",
         kind="browser_session",
@@ -3745,21 +3717,23 @@ def test_stream_doubao_does_not_fallback_to_browser_when_dom_stream_rate_limited
             or (_ for _ in ()).throw(ProviderRateLimitError("rate limited"))
         ),
     )
+
+    def _browser_stream(page, *, session, client, message, model, startup_timeout_seconds=None):
+        call_order.append("browser")
+        yield "杭州"
+        yield "很美。"
+
     monkeypatch.setattr(
         "opentoken.providers.camoufox_clients._stream_doubao_browser_completion",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("Browser fallback should not run after DOM rate limit")
-        ),
+        _browser_stream,
     )
 
-    try:
-        list(client._stream_doubao(message="hello", model="doubao-pro"))
-    except ProviderRateLimitError as exc:
-        assert "rate limited" in str(exc)
-    else:
-        raise AssertionError("Expected ProviderRateLimitError")
-
-    assert call_order == ["select:doubao-pro", "dom"]
+    # If a stream path fails before emitting anything, fall through to the other
+    # path rather than aborting (a rate-limit on one path doesn't mean the other
+    # is blocked).
+    pieces = list(client._stream_doubao(message="hello", model="doubao-pro"))
+    assert "".join(pieces) == "杭州很美。"
+    assert call_order == ["select:doubao-pro", "dom", "browser"]
 
 
 def test_stream_doubao_prefers_dom_stream_for_thinking_models(monkeypatch) -> None:
@@ -4754,15 +4728,13 @@ def test_chat_doubao_falls_back_to_dom_when_fetch_path_fails(monkeypatch) -> Non
     )
 
 
-def test_chat_doubao_fails_fast_on_rate_limit_without_dom_fallback(monkeypatch) -> None:
-    """When the API fetch path hits Doubao's anti-bot throttle/verify wall, the
-    DOM composer hits the SAME limit and _dom_send_and_wait_doubao would block on
-    its 120s `composer.wait_for` — a 120s hang per request (observed live). The
-    DOM fallback cannot recover from a rate-limit, so _chat_doubao must propagate
-    the ProviderRateLimitError (→ 429) immediately and NOT invoke the DOM path.
-
-    (Previously this test asserted the opposite — a DOM fallback on rate-limit —
-    which is exactly the behavior that produced the production hang.)"""
+def test_chat_doubao_falls_back_to_dom_on_api_rate_limit(monkeypatch) -> None:
+    """Doubao anti-bot rate-limits the programmatic in-page API fetch
+    (/samantha/chat/completion → 710022004 + a `verify` challenge), but the
+    human-like DOM compose+send path issues the page's own properly-signed
+    request and gets through (verified live: API fetch 429 while DOM returns a
+    real answer). So _chat_doubao must fall back to the DOM path on the API
+    rate-limit, not propagate the 429."""
     credentials = ProviderCredentialRecord(
         provider="doubao",
         kind="browser_session",
@@ -4819,14 +4791,14 @@ def test_chat_doubao_fails_fast_on_rate_limit_without_dom_fallback(monkeypatch) 
     dom_calls: list[str] = []
     monkeypatch.setattr(
         "opentoken.providers.camoufox_clients._dom_send_and_wait_doubao",
-        lambda page, session, client, message, model: dom_calls.append("called") or "x",
+        lambda page, session, client, message, model: (dom_calls.append("called"), "杭州很美。")[1],
     )
 
     client = CamoufoxProviderClient("doubao", credentials)
 
-    with pytest.raises(ProviderRateLimitError):
-        client._chat_doubao(message="hi", model="doubao-seed-2.0")
-    assert dom_calls == [], "DOM fallback must NOT run on a rate-limit (it hits the same wall)"
+    result = client._chat_doubao(message="hi", model="doubao-seed-2.0")
+    assert result == "杭州很美。"
+    assert dom_calls == ["called"], "API rate-limit must fall back to the DOM compose+send path"
 
 
 def test_chat_glm_cn_falls_back_to_dom_when_fetch_path_requires_login(monkeypatch) -> None:

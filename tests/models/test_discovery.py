@@ -475,7 +475,6 @@ def test_filter_user_facing_models_drops_internal_builds() -> None:
         "deepseek-reasoner",
         "doubao-pro",
         "Qwen3-Max",
-        "MiniMax-M3",
         "k2",
     ]
     for mid in junk:

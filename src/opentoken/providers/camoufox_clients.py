@@ -91,14 +91,6 @@ _GLM_INTL_DOM_BOOTSTRAP_TIMEOUT_MS = 10000
 # search queries get truncated at the preamble.
 _GLM_INTL_DOM_STREAM_IDLE_TIMEOUT_SECONDS = 12.0
 
-# MiniMax Agent (agent.minimaxi.com). Its API signs every request (x-signature /
-# yy headers computed in-page), so we drive the web UI via the DOM instead of
-# replaying the signed API. The answer renders into `.matrix-markdown`; the
-# element carries a `streaming` class while generating and drops it when done.
-_MINIMAX_URL = "https://agent.minimaxi.com/"
-_MINIMAX_BROWSER_BOOTSTRAP_TIMEOUT_MS = 60000
-_MINIMAX_DOM_STREAM_IDLE_TIMEOUT_SECONDS = 12.0
-_MINIMAX_TOKEN_LS_KEY = "_token"
 # read = max gap BETWEEN streamed tokens before we treat the stream as dead.
 # This must accommodate legitimate mid-stream pauses — reasoning models and web
 # search can go silent for tens of seconds before the answer continues. A short
@@ -185,7 +177,6 @@ class CamoufoxProviderClient:
             "grok": self._chat_grok,
             "glm-cn": self._chat_glm_cn,
             "glm-intl": self._chat_glm_intl,
-            "minimax": self._chat_minimax,
         }
         handler = dispatch.get(self._provider)
         if handler is None:
@@ -198,7 +189,6 @@ class CamoufoxProviderClient:
             "qwen-intl": self._stream_qwen_intl,
             "glm-cn": self._stream_glm_cn,
             "glm-intl": self._stream_glm_intl,
-            "minimax": self._stream_minimax,
         }
         handler = dispatch.get(self._provider)
         if handler is None:
@@ -577,14 +567,15 @@ class CamoufoxProviderClient:
                         message=message,
                         model=model,
                     )
-                except ProviderRateLimitError:
-                    # Rate-limited / anti-bot verify: the DOM composer hits the
-                    # same limit and would hang until its 120s poll timeout.
-                    # Fail fast with 429 instead of falling back.
-                    raise
-                except RuntimeError:
-                    # Non-rate-limit failure (API shape drift, transient empty
-                    # body): the DOM path may still succeed.
+                except (ProviderRateLimitError, RuntimeError):
+                    # The programmatic in-page API fetch (/samantha/chat/completion)
+                    # is what Doubao's anti-bot rate-limits (710022004 + a `verify`
+                    # challenge). The human-like DOM path — type into the composer
+                    # and click send — issues the page's OWN properly-signed
+                    # request and gets through. (Verified: API fetch → 429 while
+                    # DOM compose+send returns a real answer.) So the API fetch is
+                    # just a fast-path optimization; on ANY failure (rate-limit or
+                    # API-shape drift) fall back to the DOM path.
                     return _call_with_supported_kwargs(
                         _dom_send_and_wait_doubao,
                         page,
@@ -646,9 +637,14 @@ class CamoufoxProviderClient:
                                     continue
                                 emitted_any = True
                                 yield piece
-                        except ProviderRateLimitError:
-                            raise
-                        except RuntimeError as exc:
+                        except (ProviderRateLimitError, RuntimeError) as exc:
+                            # Once bytes have been emitted we can't un-send them,
+                            # so a mid-stream failure must surface. But if NOTHING
+                            # was emitted yet, return the error so the caller falls
+                            # back to the other path. The in-page API stream is the
+                            # one Doubao anti-bot rate-limits (429); the DOM
+                            # compose+send path gets through, so a rate-limit on
+                            # the API attempt must fall through to DOM, not abort.
                             if emitted_any:
                                 raise
                             return emitted_any, exc
@@ -1396,46 +1392,6 @@ class CamoufoxProviderClient:
                             timeout=_GLM_INTL_DOM_BOOTSTRAP_TIMEOUT_MS,
                         )
                     yield from _stream_glm_intl_dom_completion(page, message=message)
-                except Exception:
-                    if not page_was_replaced:
-                        _close_browser_session(self._provider)
-                    raise
-
-        return iterator()
-
-    def _chat_minimax(self, *, message: str, model: str) -> str:
-        return "".join(self._stream_minimax(message=message, model=model))
-
-    def _stream_minimax(self, *, message: str, model: str) -> Iterator[str]:
-        # MiniMax signs every API call in-page, so there is no replayable HTTP
-        # path — drive the agent.minimaxi.com web UI through the DOM. The login
-        # lives in the persistent profile; we re-seat the localStorage token in
-        # case the runtime profile was rebuilt.
-        def iterator() -> Iterator[str]:
-            with _provider_session_lock(self._provider):
-                session = _get_or_create_browser_session(
-                    provider=self._provider,
-                    state_dir=self._state_dir,
-                    headless=self._headless,
-                )
-                context = session.context
-                page = session.page
-                page_was_replaced = False
-                try:
-                    self._inject_cookie_string(context, (".minimaxi.com",))
-                    if _page_is_closed(page):
-                        page = context.pages[0] if getattr(context, "pages", []) else context.new_page()
-                        session.page = page
-                        page_was_replaced = True
-                    current_url = str(getattr(page, "url", ""))
-                    if "minimaxi.com" not in current_url:
-                        page.goto(
-                            _MINIMAX_URL,
-                            wait_until="domcontentloaded",
-                            timeout=_MINIMAX_BROWSER_BOOTSTRAP_TIMEOUT_MS,
-                        )
-                    _restore_minimax_token(page, self._credentials)
-                    yield from _stream_minimax_via_sse(page, message=message)
                 except Exception:
                     if not page_was_replaced:
                         _close_browser_session(self._provider)
@@ -4965,126 +4921,3 @@ def _dom_send_and_wait_glm_intl(page, message: str) -> str:
     return _strip_glm_intl_think_markup(
         "".join(_stream_glm_intl_dom_completion(page, message=message))
     )
-
-
-# ─── MiniMax Agent (agent.minimaxi.com) DOM streaming ─────────────────────────
-
-
-def _restore_minimax_token(page, credentials) -> None:
-    """Re-seat the auth JWT into localStorage if the runtime profile lost it.
-
-    The persistent profile normally keeps `_token` from login, but the runtime
-    profile is a fresh copy and an expired/cleared entry would land us on the
-    sign-in wall. If a token is missing we set it and reload so the app picks it
-    up. Best-effort: a stale token just means the UI shows login, which surfaces
-    as a normal capture failure."""
-    token = str((getattr(credentials, "metadata", None) or {}).get("token") or "").strip()
-    if not token:
-        return
-    try:
-        present = bool(
-            page.evaluate(
-                "() => { try { return !!localStorage.getItem('_token'); } catch (e) { return false; } }"
-            )
-        )
-        if present:
-            return
-        page.evaluate(
-            "(t) => { try { localStorage.setItem('_token', t); } catch (e) {} }",
-            token,
-        )
-        page.reload(wait_until="domcontentloaded", timeout=_MINIMAX_BROWSER_BOOTSTRAP_TIMEOUT_MS)
-    except Exception:
-        pass
-
-
-def _wait_for_minimax_input_ready(page, *, timeout_ms: int = 120000) -> None:
-    page.wait_for_selector(
-        '.ProseMirror[contenteditable="true"], [contenteditable="true"], textarea',
-        state="visible",
-        timeout=timeout_ms,
-    )
-
-
-def _send_minimax_dom_message(page, *, message: str) -> None:
-    composer = page.locator('.ProseMirror[contenteditable="true"], [contenteditable="true"]').first
-    composer.wait_for(state="visible", timeout=120000)
-    composer.click(timeout=10000)
-    page.keyboard.press(_SELECT_ALL_CHORD)
-    page.keyboard.press("Backspace")
-    page.keyboard.type(message, delay=15)
-    page.wait_for_timeout(300)
-    page.keyboard.press("Enter")
-
-
-def _parse_minimax_sse_segments(raw: str) -> tuple[str, str]:
-    """Parse MiniMax's /message SSE into (thinking, answer).
-
-    The stream is `data:{...}` events; `type:6` agent_message_chunks carry either
-    `thinking_content` (the model's reasoning) or `msg_content` (the visible
-    answer), both delivered incrementally. We concatenate each channel. Scraping
-    the DOM was unreliable for this agent UI (the answer bubble vanishes during a
-    web-search/tool step), so the network stream is the source of truth.
-    """
-    thinking_parts: list[str] = []
-    answer_parts: list[str] = []
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line.startswith("data:"):
-            continue
-        payload = line[5:].strip()
-        if not payload or payload == "[DONE]":
-            continue
-        try:
-            event = json.loads(payload)
-        except json.JSONDecodeError:
-            continue
-        chunk = event.get("agent_message_chunk")
-        if not isinstance(chunk, dict):
-            continue
-        thinking = chunk.get("thinking_content")
-        if isinstance(thinking, str) and thinking:
-            thinking_parts.append(thinking)
-        content = chunk.get("msg_content")
-        if isinstance(content, str) and content:
-            answer_parts.append(content)
-    return "".join(thinking_parts), "".join(answer_parts)
-
-
-def _stream_minimax_via_sse(
-    page,
-    *,
-    message: str,
-    timeout_ms: int = 180000,
-) -> Iterator[str]:
-    """Send a message in the MiniMax web UI and capture its /message SSE.
-
-    Driving the UI lets the page sign the request (x-signature / yy are computed
-    in-page); we then read the response stream the app received. This is robust
-    to the agent UI's DOM (which rewrites/removes the answer bubble during tool
-    steps). Reasoning is wrapped in <think> per the gateway convention (streaming
-    keeps it, the non-stream path strips it).
-
-    Note: a tool-using turn (web search etc.) ends its first SSE with
-    finish_reason "toolUse" and only the preamble in msg_content — the full
-    agentic loop spans further requests. We return the first turn's content
-    rather than hang, so simple chats get the complete answer and agent tasks get
-    a fast partial instead of a timeout.
-    """
-    _wait_for_minimax_input_ready(page)
-    with page.expect_response(
-        lambda r: "/message" in r.url and r.request.method == "POST",
-        timeout=timeout_ms,
-    ) as response_info:
-        _send_minimax_dom_message(page, message=message)
-    response = response_info.value
-    raw = response.text()
-    thinking, answer = _parse_minimax_sse_segments(raw)
-    if not thinking and not answer:
-        raise RuntimeError("MiniMax Agent returned no content.")
-    if thinking:
-        yield "<think>"
-        yield thinking
-        yield "</think>"
-    if answer:
-        yield answer

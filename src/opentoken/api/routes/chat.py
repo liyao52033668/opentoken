@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import queue
+import threading
 from time import time
 from uuid import uuid4
 
@@ -31,6 +33,60 @@ from opentoken.providers.base import ProviderRateLimitError
 from opentoken.providers.web_tool_calling import parse_web_tool_response
 
 router = APIRouter()
+
+# Browser-backed providers can go silent for tens of seconds (e.g. a multi-step
+# web search runs before any answer text is emitted). With nothing on the wire,
+# OpenAI clients hit their read timeout and abort the request. We emit a keepalive
+# chunk on this cadence whenever the upstream stream is idle so the connection
+# stays alive until real content arrives.
+_STREAM_HEARTBEAT_SECONDS = 8.0
+
+
+def _iter_with_heartbeat(chunks, interval: float = _STREAM_HEARTBEAT_SECONDS):
+    """Yield (kind, value) from `chunks`, injecting ("heartbeat", None) on idle.
+
+    The upstream iterator is drained on a worker thread and handed back through a
+    queue, so a slow/blocking provider stream cannot starve the SSE connection:
+    if no item arrives within `interval`, we surface a heartbeat and keep waiting.
+    Errors raised by the upstream iterator are re-raised here, in order."""
+    q: "queue.Queue[tuple[str, object]]" = queue.Queue()
+
+    def _drain() -> None:
+        try:
+            for item in chunks:
+                q.put(("item", item))
+        except Exception as exc:  # noqa: BLE001 - propagated to the consumer below
+            q.put(("error", exc))
+        else:
+            q.put(("done", None))
+
+    worker = threading.Thread(target=_drain, daemon=True)
+    worker.start()
+    while True:
+        try:
+            kind, value = q.get(timeout=interval)
+        except queue.Empty:
+            yield ("heartbeat", None)
+            continue
+        if kind == "item":
+            yield ("item", value)
+        elif kind == "error":
+            raise value  # type: ignore[misc]
+        else:  # done
+            return
+
+
+def _heartbeat_chunk(completion_id: str, created: int, model: str) -> str:
+    """A content-free chunk that keeps the SSE connection warm. An empty delta is
+    universally tolerated by OpenAI clients (the terminal chunk uses delta {})."""
+    payload = {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model,
+        "choices": [{"index": 0, "delta": {}, "finish_reason": None}],
+    }
+    return f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
 
 
 @router.post("/v1/chat/completions")
@@ -165,7 +221,10 @@ def _stream_chat_completion(
             include_think = _should_include_think_in_chat_stream(request)
             projector = ProtocolMarkupProjector(include_think=include_think)
             try:
-                for raw_piece in content_stream:
+                for kind, raw_piece in _iter_with_heartbeat(content_stream):
+                    if kind == "heartbeat":
+                        yield _heartbeat_chunk(completion_id, created, request.model)
+                        continue
                     if not raw_piece:
                         continue
                     piece = projector.push(str(raw_piece))

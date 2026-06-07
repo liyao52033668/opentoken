@@ -46,7 +46,6 @@ _CHAINABLE_PROVIDERS = frozenset({"nim"})
 # Provider types that use the browser pool
 _BROWSER_PROVIDERS = frozenset({
     "doubao", "qwen-intl", "qwen-cn", "chatgpt", "gemini", "grok", "glm-cn", "glm-intl",
-    "minimax",
 })
 
 
@@ -105,11 +104,6 @@ class PoolAwareRouter:
                 provider_name="GLM International",
                 login_hint="opentoken login glm-intl",
                 client_factory=lambda credentials: CamoufoxProviderClient("glm-intl", credentials),
-            ),
-            "minimax": BrowserChatAdapter(
-                provider_name="MiniMax Agent",
-                login_hint="opentoken login minimax",
-                client_factory=lambda credentials: CamoufoxProviderClient("minimax", credentials),
             ),
         }
         for key, adapter in defaults.items():
