@@ -12,6 +12,7 @@ from opentoken.api.routes.embeddings import router as embeddings_router
 from opentoken.api.routes.files import router as files_router
 from opentoken.api.routes.health import router as health_router
 from opentoken.api.routes.models import router as models_router
+from opentoken.api.routes.providers import router as providers_router
 from opentoken.api.routes.responses import router as responses_router
 from opentoken.api.routes.uploads import router as uploads_router
 from opentoken.config.gateway_config import load_gateway_config
@@ -139,6 +140,7 @@ def create_app() -> FastAPI:
     app.include_router(embeddings_router)
     app.include_router(chat_router)
     app.include_router(responses_router)
+    app.include_router(providers_router)
     return app
 
 

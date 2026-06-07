@@ -222,24 +222,169 @@ uv run opentoken login qwen international \
 uv run opentoken login deepseek --header 'authorization=Bearer xxx'
 ```
 
+#### HTTP 接口（服务器环境）
+
+在服务器环境下，可通过 HTTP 接口管理凭证：
+
+```bash
+
+# 登录 provider
+curl -X POST http://127.0.0.1:32117/v1/providers/qwen-intl/credentials \
+  -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"cookie": "xxx", "user_agent": "..."}'
+
+# 列出所有 provider 状态
+curl http://127.0.0.1:32117/v1/providers \
+  -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY'
+
+# 获取单个 provider 详情
+curl http://127.0.0.1:32117/v1/providers/qwen-intl \
+  -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY'
+
+# 删除凭证
+curl -X DELETE http://127.0.0.1:32117/v1/providers/qwen-intl/credentials \
+  -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY'
+```
+
+**Provider 认证方式对照表**：
+
+| Provider | 支持的认证方式 | 推荐方式 | 示例 |
+|----------|--------------|---------|------|
+| deepseek | cookie, header | header | `{"headers": {"authorization": "Bearer xxx"}}` |
+| qwen-intl | cookie, header | cookie | `{"cookie": "xxx", "user_agent": "..."}` |
+| qwen-cn | cookie, header | cookie | `{"cookie": "xxx", "user_agent": "..."}` |
+| kimi | cookie, header | cookie | `{"cookie": "xxx", "user_agent": "..."}` |
+| claude | cookie, header | header | `{"headers": {"x-api-key": "xxx"}}` |
+| doubao | cookie, header | cookie | `{"cookie": "xxx", "user_agent": "..."}` |
+| chatgpt | cookie, header | cookie | `{"cookie": "xxx", "user_agent": "..."}` |
+| gemini | cookie, header | header | `{"headers": {"authorization": "Bearer xxx"}}` |
+| grok | cookie, header | cookie | `{"cookie": "xxx", "user_agent": "..."}` |
+| glm-cn | cookie, header | cookie | `{"cookie": "xxx", "user_agent": "..."}` |
+| glm-intl | cookie, header | cookie | `{"cookie": "xxx", "user_agent": "..."}` |
+| mimo | cookie, header | cookie | `{"cookie": "xxx", "user_agent": "..."}` |
+| manus | api_key | api_key | `{"api_key": "xxx"}` |
+| nim | api_key | api_key | `{"api_key": "nvapi-xxx"}` |
+| unified | header | header | `{"headers": {"api_key_openrouter": "xxx"}}` |
+
+**凭证请求示例**：
+
+```bash
+# DeepSeek（用 header）
+curl -X POST http://127.0.0.1:32117/v1/providers/deepseek/credentials \
+  -H 'Authorization: Bearer YOUR_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"headers": {"authorization": "Bearer sk-xxx"}}'
+
+# Qwen / Kimi / Doubao 等（用 cookie + user_agent）
+curl -X POST http://127.0.0.1:32117/v1/providers/qwen-intl/credentials \
+  -H 'Authorization: Bearer YOUR_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"cookie": "cookie_string_here", "user_agent": "Mozilla/5.0..."}'
+
+# Claude（用 header）
+curl -X POST http://127.0.0.1:32117/v1/providers/claude/credentials \
+  -H 'Authorization: Bearer YOUR_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"headers": {"x-api-key": "sk-ant-api03-xxx"}}'
+
+# Manus / NVIDIA NIM（用 api_key）
+curl -X POST http://127.0.0.1:32117/v1/providers/nim/credentials \
+  -H 'Authorization: Bearer YOUR_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"api_key": "nvapi-xxx"}'
+```
+
+**接口说明**：
+
+| 方法 | 路径 | 说明 | curl 示例 |
+|------|------|------|----------|
+| GET | `/v1/providers` | 列出所有 provider 状态 | `curl http://127.0.0.1:32117/v1/providers -H 'Authorization: Bearer xxx'` |
+| GET | `/v1/providers/{provider}` | 获取单个 provider 详情 | `curl http://127.0.0.1:32117/v1/providers/deepseek -H 'Authorization: Bearer xxx'` |
+| POST | `/v1/providers/{provider}/credentials` | 添加/更新凭证 | `curl -X POST http://127.0.0.1:32117/v1/providers/deepseek/credentials -H 'Authorization: Bearer xxx' -H 'Content-Type: application/json' -d '{"headers": {"authorization": "Bearer sk-xxx"}}'` |
+| DELETE | `/v1/providers/{provider}/credentials` | 删除凭证 | `curl -X DELETE http://127.0.0.1:32117/v1/providers/deepseek/credentials -H 'Authorization: Bearer xxx'` |
+
+**请求体字段说明**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `cookie` | string | 网页登录态 cookie（qwen, kimi, doubao 等用） |
+| `headers` | object | 自定义请求头（deepseek, claude, gemini 等用） |
+| `api_key` | string | API 密钥（manus, nim 用） |
+| `user_agent` | string | User-Agent 字符串（配合 cookie 使用） |
+| `metadata` | object | 额外元数据 |
+
+**凭证请求完整示例**：
+
+```bash
+# 列出所有 provider
+curl http://127.0.0.1:32117/v1/providers \
+  -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY'
+
+# 查看单个 provider
+curl http://127.0.0.1:32117/v1/providers/qwen-intl \
+  -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY'
+
+# 设置 DeepSeek 凭证（用 header）
+curl -X POST http://127.0.0.1:32117/v1/providers/deepseek/credentials \
+  -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"headers": {"authorization": "Bearer sk-xxx"}}'
+
+# 设置 Qwen 凭证（用 cookie）
+curl -X POST http://127.0.0.1:32117/v1/providers/qwen-intl/credentials \
+  -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"cookie": "cookie_string_here", "user_agent": "Mozilla/5.0..."}'
+
+# 设置 Claude 凭证（用 header）
+curl -X POST http://127.0.0.1:32117/v1/providers/claude/credentials \
+  -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"headers": {"x-api-key": "sk-ant-api03-xxx"}}'
+
+# 设置 NVIDIA NIM 凭证（用 api_key）
+curl -X POST http://127.0.0.1:32117/v1/providers/nim/credentials \
+  -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"api_key": "nvapi-xxx"}'
+
+# 删除凭证
+curl -X DELETE http://127.0.0.1:32117/v1/providers/qwen-intl/credentials \
+  -H 'Authorization: Bearer YOUR_LOCAL_GATEWAY_KEY'
+```
+
 ### 方式 C：API key
+
+以下 provider 支持直接使用 API key 认证：
+
+| Provider | API Key 格式 | 说明 |
+|----------|-------------|------|
+| **manus** | `xxx` | 官方 API key，可调用各种 AI agent |
+| **nim** | `nvapi-xxx` | NVIDIA NIM 免费 40 RPM，覆盖 DeepSeek R1 / Llama 3.3 70B / Qwen 2.5 72B 等 |
 
 ```bash
 uv run opentoken login manus --api-key YOUR_KEY
 uv run opentoken login nim   --api-key nvapi-XXXXXXXXXXXXXXXXXXXX
 ```
 
-NIM 凭证可选 `model_chain` 跨模型 fallback —— 被 429 的模型自动切到链表里下一个，调用方无感：
+**NVIDIA NIM**（推荐免费试用）：
+- 注册 NVIDIA 账号获取 `nvapi-xxx` 格式的 key
+- 免费 40 RPM，无需信用卡
+- 支持模型：`deepseek-ai/deepseek-r1`、`meta/llama-3.3-70b-instruct`、`qwen/qwen2.5-72b-instruct`、`mistralai/mixtral-8x22b-instruct` 等
 
-```json
-{
-  "kind": "api_key",
-  "metadata": {
-    "api_key": "nvapi-XXXXXXXXXXXXXXXXXXXX",
-    "model_chain": "[\"deepseek-ai/deepseek-r1\", \"meta/llama-3.3-70b-instruct\", \"qwen/qwen2.5-72b-instruct\"]"
-  },
-  "status": "valid"
-}
+**NIM 可选 model_chain**：被 429 限流时自动切换到链表里下一个模型：
+
+```bash
+# CLI 设置 model_chain
+uv run opentoken login nim --api-key nvapi-xxx \
+  --metadata model_chain='["deepseek-ai/deepseek-r1", "meta/llama-3.3-70b-instruct"]'
+
+# HTTP 接口设置
+curl -X POST http://127.0.0.1:32117/v1/providers/nim/credentials \
+  -H 'Authorization: Bearer YOUR_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"api_key": "nvapi-xxx", "metadata": {"model_chain": "[\"deepseek-ai/deepseek-r1\", \"meta/llama-3.3-70b-instruct\"]"}}'
 ```
 
 ### 方式 D：Unified Proxy (LiteLLM)
