@@ -38,6 +38,9 @@ class S3Storage(StorageBackend):
     - OPENTOKEN_S3_ACCESS_KEY: Access Key ID
     - OPENTOKEN_S3_SECRET_KEY: Secret Access Key
     - OPENTOKEN_S3_PREFIX: 键前缀（可选，用于在桶内分区）
+    - OPENTOKEN_S3_SIGNATURE_VERSION: 签名版本（默认 s3v4）
+    - OPENTOKEN_S3_ADDRESSING_STYLE: 寻址样式（virtual/path/auto，默认 virtual）
+    - OPENTOKEN_S3_PAYLOAD_SIGNING: 是否启用内容签名（true/false，默认 false）
     """
 
     def __init__(
@@ -49,6 +52,9 @@ class S3Storage(StorageBackend):
         access_key: str,
         secret_key: str,
         prefix: str = "",
+        signature_version: str = "s3v4",
+        addressing_style: str = "virtual",
+        payload_signing: bool = False,
     ) -> None:
         """初始化 S3 存储后端。
 
@@ -59,11 +65,17 @@ class S3Storage(StorageBackend):
             access_key: Access Key ID
             secret_key: Secret Access Key
             prefix: 键前缀
+            signature_version: 签名版本（s3v4/s3）
+            addressing_style: 寻址样式（virtual/path/auto）
+            payload_signing: 是否启用内容 SHA256 签名
         """
         self._endpoint_url = endpoint_url
         self._region_name = region_name
         self._bucket_name = bucket_name
         self._prefix = prefix.rstrip("/") if prefix else ""
+        self._signature_version = signature_version
+        self._addressing_style = addressing_style
+        self._payload_signing = payload_signing
         self._client = self._create_client(access_key, secret_key)
 
     def _create_client(self, access_key: str, secret_key: str):
@@ -83,6 +95,16 @@ class S3Storage(StorageBackend):
             read_timeout=30,
             # 重试配置
             retries={"max_attempts": 3, "mode": "standard"},
+            # S3 签名版本配置 - 使用 v4 签名以兼容更多 S3 兼容服务
+            signature_version=self._signature_version,
+            # S3 特定配置
+            s3={
+                # 寻址样式 - 兼容 Cloudflare R2、MinIO 等服务
+                "addressing_style": self._addressing_style,
+                # 内容 SHA256 签名 - 禁用可解决 XAmzContentSHA256Mismatch 错误
+                # 某些代理或负载均衡器可能会修改请求体导致哈希不匹配
+                "payload_signing_enabled": self._payload_signing,
+            },
         )
 
         return boto3.client(
@@ -207,6 +229,9 @@ class S3Storage(StorageBackend):
         access_key = os.getenv("OPENTOKEN_S3_ACCESS_KEY", "")
         secret_key = os.getenv("OPENTOKEN_S3_SECRET_KEY", "")
         prefix = os.getenv("OPENTOKEN_S3_PREFIX", "")
+        signature_version = os.getenv("OPENTOKEN_S3_SIGNATURE_VERSION", "s3v4")
+        addressing_style = os.getenv("OPENTOKEN_S3_ADDRESSING_STYLE", "virtual")
+        payload_signing = os.getenv("OPENTOKEN_S3_PAYLOAD_SIGNING", "false").lower() == "true"
 
         if not bucket_name:
             raise ValueError("OPENTOKEN_S3_BUCKET is required for S3 storage")
@@ -222,4 +247,7 @@ class S3Storage(StorageBackend):
             access_key=access_key,
             secret_key=secret_key,
             prefix=prefix,
+            signature_version=signature_version,
+            addressing_style=addressing_style,
+            payload_signing=payload_signing,
         )
