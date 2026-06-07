@@ -39,7 +39,7 @@ class S3Storage(StorageBackend):
     - OPENTOKEN_S3_SECRET_KEY: Secret Access Key
     - OPENTOKEN_S3_PREFIX: 键前缀（可选，用于在桶内分区）
     - OPENTOKEN_S3_SIGNATURE_VERSION: 签名版本（默认 s3v4）
-    - OPENTOKEN_S3_ADDRESSING_STYLE: 寻址样式（virtual/path/auto，默认 virtual）
+    - OPENTOKEN_S3_ADDRESSING_STYLE: 寻址样式（virtual/path/auto，默认 path）
     - OPENTOKEN_S3_PAYLOAD_SIGNING: 是否启用内容签名（true/false，默认 false）
     """
 
@@ -53,7 +53,7 @@ class S3Storage(StorageBackend):
         secret_key: str,
         prefix: str = "",
         signature_version: str = "s3v4",
-        addressing_style: str = "virtual",
+        addressing_style: str = "path",
         payload_signing: bool = False,
     ) -> None:
         """初始化 S3 存储后端。
@@ -66,7 +66,7 @@ class S3Storage(StorageBackend):
             secret_key: Secret Access Key
             prefix: 键前缀
             signature_version: 签名版本（s3v4/s3）
-            addressing_style: 寻址样式（virtual/path/auto）
+            addressing_style: 寻址样式（virtual/path/auto，默认 path 兼容华为云等国产 S3）
             payload_signing: 是否启用内容 SHA256 签名
         """
         self._endpoint_url = endpoint_url
@@ -230,7 +230,7 @@ class S3Storage(StorageBackend):
         secret_key = os.getenv("OPENTOKEN_S3_SECRET_KEY", "")
         prefix = os.getenv("OPENTOKEN_S3_PREFIX", "")
         signature_version = os.getenv("OPENTOKEN_S3_SIGNATURE_VERSION", "s3v4")
-        addressing_style = os.getenv("OPENTOKEN_S3_ADDRESSING_STYLE", "virtual")
+        addressing_style = os.getenv("OPENTOKEN_S3_ADDRESSING_STYLE", "path")
         payload_signing = os.getenv("OPENTOKEN_S3_PAYLOAD_SIGNING", "false").lower() == "true"
 
         if not bucket_name:

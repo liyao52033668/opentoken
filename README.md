@@ -85,7 +85,7 @@ export OPENTOKEN_STATE_DIR=/data/opentoken
 
 ### S3 兼容对象存储
 
-支持所有兼容 S3 API 的对象存储：AWS S3、MinIO、阿里云 OSS、腾讯云 COS、Cloudflare R2 等。
+支持所有兼容 S3 API 的对象存储：AWS S3、MinIO、阿里云 OSS、腾讯云 COS、华为云 OBS、Cloudflare R2 等。
 
 ```bash
 export OPENTOKEN_STORAGE_BACKEND=s3
@@ -93,11 +93,33 @@ export OPENTOKEN_S3_BUCKET=opentoken-data
 export OPENTOKEN_S3_ACCESS_KEY=your-access-key
 export OPENTOKEN_S3_SECRET_KEY=your-secret-key
 
-# 可选配置
-export OPENTOKEN_S3_ENDPOINT=http://localhost:9000  # MinIO 示例
+# 必选配置
+# S3 端点 URL（默认 AWS S3，可不设置）
+export OPENTOKEN_S3_ENDPOINT=https://s3.amazonaws.com
+# 区域（默认 us-east-1）
 export OPENTOKEN_S3_REGION=us-east-1
+# 键前缀（可选，用于在桶内分区）
 export OPENTOKEN_S3_PREFIX=opentoken/
+
+# 可选：高级配置
+# 签名版本（默认 s3v4，兼容大多数 S3 兼容服务）
+export OPENTOKEN_S3_SIGNATURE_VERSION=s3v4
+# 寻址样式（默认 path，兼容华为云等国产 S3；AWS S3/Cloudflare R2 使用 virtual）
+export OPENTOKEN_S3_ADDRESSING_STYLE=path
+# 内容签名（默认 false，禁用可解决 XAmzContentSHA256Mismatch 错误）
+export OPENTOKEN_S3_PAYLOAD_SIGNING=false
 ```
+
+**不同 S3 服务的推荐配置**：
+
+| 服务 | 寻址样式 | 内容签名 | 说明 |
+|------|---------|---------|------|
+| AWS S3 | virtual | false | 默认配置 |
+| 华为云 OBS | path | false | 使用 path 寻址 |
+| 阿里云 OSS | virtual | false | 使用虚拟主机寻址 |
+| 腾讯云 COS | virtual | false | 使用虚拟主机寻址 |
+| MinIO | path | false | 使用 path 寻址 |
+| Cloudflare R2 | virtual | false | 使用虚拟主机寻址 |
 
 **Docker Compose 配置示例**：
 
@@ -349,6 +371,13 @@ uv run opentoken config --opentoken-config /path/to/openclaw-config.json
 - **浏览器 provider 报 `NS_ERROR_PROXY_CONNECTION_REFUSED`** → Camoufox 读**系统级**代理（不受 `HTTP_PROXY` env 影响）；关掉系统代理或确保代理可达。纯 HTTP provider 不受影响。
 - **某 provider 持续 429 / 验证码（如 Doubao）** → 上游对无头自动化的反爬，换个时间或换出口 IP 再试；网关侧会快速返回 429 而不是挂起。
 - **切换监听地址** → `opentoken start --host 0.0.0.0` 会打非 loopback 警告。
+
+### S3 存储排障
+
+- **S3 连接失败** → 检查 `OPENTOKEN_S3_ENDPOINT`、`OPENTOKEN_S3_BUCKET`、`OPENTOKEN_S3_ACCESS_KEY`、`OPENTOKEN_S3_SECRET_KEY` 环境变量是否正确。
+- **XAmzContentSHA256Mismatch 错误** → 设置 `OPENTOKEN_S3_PAYLOAD_SIGNING=false` 禁用内容签名校验。
+- **S3 URL 格式错误** → 不同 S3 服务需要不同的寻址样式：华为云等国产 S3 使用 `path`，AWS S3/Cloudflare R2 使用 `virtual`。设置 `OPENTOKEN_S3_ADDRESSING_STYLE` 适配。
+- **容器环境端口扫描超时** → 在容器环境中会自动绑定到 `0.0.0.0`；也可通过 `OPENTOKEN_HOST=0.0.0.0` 或 `OPENTOKEN_PORT` 环境变量强制指定。
 
 ## 开发与测试
 
