@@ -105,7 +105,7 @@ def capture_mimo_browser_credentials(*, state_dir: Path) -> dict[str, str]:
                 if cookie_string and len(cookies) > 1 and (token_cookie is not None or captured_token["value"]):
                     return {
                         "cookie": cookie_string,
-                        "user_agent": user_agent,
+                        "user_agent": user_agent.strip(),
                     }
 
                 time.sleep(2)

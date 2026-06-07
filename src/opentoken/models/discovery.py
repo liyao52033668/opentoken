@@ -242,7 +242,7 @@ def _dedupe_models(models: list[tuple[str, str]]) -> list[tuple[str, str]]:
 def _fetch_text_page(*, url: str, credentials: ProviderCredentialRecord) -> str:
     headers = {
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "User-Agent": credentials.user_agent or "Mozilla/5.0",
+        "User-Agent": (credentials.user_agent or "Mozilla/5.0").strip(),
         "Cookie": credentials.cookie or "",
         "Referer": url,
     }
@@ -469,7 +469,7 @@ def _http_get_json(
 ) -> object | None:
     headers: dict[str, str] = {
         "Accept": "application/json",
-        "User-Agent": credentials.user_agent or "Mozilla/5.0",
+        "User-Agent": (credentials.user_agent or "Mozilla/5.0").strip(),
     }
     if credentials.cookie:
         headers["Cookie"] = credentials.cookie

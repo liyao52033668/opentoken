@@ -70,7 +70,7 @@ def _capture_doubao_browser_credentials_with_factory(
 
                     return {
                         "cookie": cookie_string,
-                        "user_agent": user_agent,
+                        "user_agent": user_agent.strip(),
                         "metadata": metadata,
                     }
 

@@ -79,7 +79,7 @@ def capture_glm_browser_credentials(*, state_dir: Path) -> dict[str, str]:
                             if cookie_string:
                                 return {
                                     "cookie": cookie_string,
-                                    "user_agent": user_agent,
+                                    "user_agent": user_agent.strip(),
                                 }
                         last_token = token
                     elif token == last_token and token:
@@ -89,7 +89,7 @@ def capture_glm_browser_credentials(*, state_dir: Path) -> dict[str, str]:
                             if cookie_string:
                                 return {
                                     "cookie": cookie_string,
-                                    "user_agent": user_agent,
+                                    "user_agent": user_agent.strip(),
                                 }
                     else:
                         stable_count = 0

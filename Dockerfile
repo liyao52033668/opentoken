@@ -47,16 +47,15 @@ COPY --from=builder /build/.venv /app/.venv
 COPY --from=builder /build/src /app/src
 COPY pyproject.toml uv.lock README.md config.yaml ./
 
-# Fetch Camoufox browser runtime into the image
+# Switch to opentoken user before installing browser runtime
+RUN chown -R opentoken:opentoken /app
+USER opentoken
+
+# Fetch Camoufox browser runtime into the image (as opentoken user)
 RUN /app/.venv/bin/python -m camoufox fetch
 
 # Initialize opentoken state directory
 RUN uv run opentoken onboard
-
-# Own everything by opentoken user
-RUN chown -R opentoken:opentoken /app
-
-USER opentoken
 
 # Default data/config directory (mount a volume here to persist sessions)
 VOLUME ["/app/data"]

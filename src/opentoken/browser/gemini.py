@@ -39,7 +39,7 @@ def capture_gemini_browser_credentials(*, state_dir: Path) -> dict[str, str]:
                 if cookie_string and any(item["name"] in _GEMINI_COOKIE_NAMES for item in cookies):
                     return {
                         "cookie": cookie_string,
-                        "user_agent": user_agent,
+                        "user_agent": user_agent.strip(),
                     }
                 time.sleep(2)
         finally:

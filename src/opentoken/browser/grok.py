@@ -41,7 +41,7 @@ def capture_grok_browser_credentials(*, state_dir: Path) -> dict[str, str]:
                 if cookie_string and has_auth_cookie:
                     return {
                         "cookie": cookie_string,
-                        "user_agent": user_agent,
+                        "user_agent": user_agent.strip(),
                     }
 
                 time.sleep(2)

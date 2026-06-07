@@ -62,7 +62,7 @@ def capture_claude_browser_credentials(*, state_dir: Path) -> dict[str, object]:
                 if cookie_string and session_key.startswith(_CLAUDE_SESSION_PREFIXES):
                     return {
                         "cookie": cookie_string,
-                        "user_agent": user_agent,
+                        "user_agent": user_agent.strip(),
                         "metadata": {"session_key": session_key},
                     }
 

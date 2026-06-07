@@ -80,7 +80,7 @@ def capture_glm_intl_browser_credentials(*, state_dir: Path) -> dict[str, str]:
                 if cookie_string and (has_auth_cookie or (has_chat_input and logged_in_url and not has_sign_in)):
                     return {
                         "cookie": cookie_string,
-                        "user_agent": user_agent,
+                        "user_agent": user_agent.strip(),
                     }
 
                 time.sleep(2)
