@@ -103,7 +103,11 @@ class S3Storage(StorageBackend):
             s3={
                 # 寻址样式 - 兼容 Cloudflare R2、MinIO、华为云等服务
                 "addressing_style": self._addressing_style,
+                # 禁用内容 SHA256 签名 - 解决 XAmzContentSHA256Mismatch 错误
+               'payload_signing_enabled': self._payload_signing,
             },
+            request_checksum_calculation='when_required',
+            response_checksum_validation='when_required',
         )
 
         client = boto3.client(
