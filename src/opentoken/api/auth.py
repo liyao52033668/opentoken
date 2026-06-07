@@ -1,5 +1,6 @@
 import hmac
 import json
+import os
 import threading
 from pathlib import Path
 
@@ -7,6 +8,8 @@ from fastapi import Request
 
 from opentoken.api.errors import openai_error_response
 from opentoken.config.paths import resolve_app_config_path
+
+_ENV_API_KEY = "OPENTOKEN_API_KEY"
 
 
 _CACHE_LOCK = threading.Lock()
@@ -74,6 +77,11 @@ def _get_expected_api_key(config_path: Path) -> tuple[str | None, bool]:
                         — caller fails closed
     """
     global _CACHED_API_KEY, _CACHED_MTIME_NS, _CACHED_PATH
+    # 环境变量优先：每次请求都检查，支持运行时动态更新
+    env_key = os.getenv(_ENV_API_KEY)
+    if env_key:
+        return env_key, False
+
     try:
         stat = config_path.stat()
         mtime_ns = stat.st_mtime_ns

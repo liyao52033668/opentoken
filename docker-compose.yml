@@ -7,8 +7,9 @@ services:
       - "32117:32117"
     volumes:
       - opentoken-data:/app/data
-    # 如需配置代理，取消下面的注释
+    # 如需配置代理或固定 API Key，取消下面的注释
     # environment:
+    #   OPENTOKEN_API_KEY: your-api-key-here
     #   HTTP_PROXY: http://your-proxy:7890
     #   HTTPS_PROXY: http://your-proxy:7890
 

@@ -2,8 +2,6 @@
 
 # OpenToken
 
-**🇨🇳 中文 · [🇬🇧 English](README.en.md)**
-
 把多家 LLM 网页登录态 / API key 凭证统一成一个本地 OpenAI 兼容网关。
 
 </div>
@@ -87,11 +85,30 @@ uv run opentoken start        # 默认监听 http://127.0.0.1:32117
 
 OpenToken 用的是**本地网关自己的 API key**（不是上游 provider 的 key）。
 
+**通过环境变量设置 API key（推荐）**：
+
+```bash
+export OPENTOKEN_API_KEY=your-custom-key
+uv run opentoken start
+```
+
+环境变量优先于配置文件，支持运行时动态更新无需重启。Docker 部署时在 `docker-compose.yml` 中设置：
+
+```yaml
+environment:
+  OPENTOKEN_API_KEY: your-custom-key
+```
+
+**自动生成的 API key**：
+
 ```bash
 cat ~/.opentoken/config.json
 # {"api_key":"...","host":"127.0.0.1","port":32117}
 ```
 
+首次启动时自动生成并打印到日志，请妥善保存。
+
+- **环境变量** `OPENTOKEN_API_KEY`：优先级最高，运行时覆盖配置文件
 - 配置文件**不存在**（首次启动前）：视为开发场景 keyless 放行
 - 配置文件存在但 `api_key` 是空字符串 / 纯空白：**fail closed 503**（rotation 中清空 key 忘了换是常见误操作，不能默默放行）
 - 真要 keyless 本地模式：显式 `"keyless_local": true` opt-in
