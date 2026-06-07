@@ -1,11 +1,18 @@
+"""Provider 会话存储（使用 StorageBackend）。
+
+会话上下文存储，支持本地文件系统或 S3 兼容对象存储。
+"""
 from __future__ import annotations
 
 import hashlib
 import json
 from pathlib import Path
 
-from opentoken.storage._atomic import file_lock, write_json_atomic
 from opentoken.models.provider_credentials import ProviderCredentialRecord
+from opentoken.storage.config_store import (
+    read_provider_sessions,
+    write_provider_sessions,
+)
 
 
 # Cap the session store. The key embeds a credential fingerprint, so each
@@ -24,8 +31,17 @@ def load_provider_session(
     provider: str,
     credentials: ProviderCredentialRecord,
 ) -> dict[str, str]:
-    path = _resolve_session_store_path(state_dir)
-    store = _load_store(path)
+    """加载 provider 会话。
+
+    Args:
+        state_dir: 状态目录（保留参数，用于向后兼容）
+        provider: provider 名称
+        credentials: ProviderCredentialRecord
+
+    Returns:
+        会话状态字典
+    """
+    store = read_provider_sessions() or {}
     return dict(store.get(_session_key(provider, credentials), {}))
 
 
@@ -36,26 +52,35 @@ def save_provider_session(
     credentials: ProviderCredentialRecord,
     state: dict[str, str],
 ) -> Path:
-    path = _resolve_session_store_path(state_dir)
-    # Lock the read-modify-write: this store is keyed by (provider, credential
-    # fingerprint), so concurrent saves for DIFFERENT providers/accounts would
-    # otherwise lose each other's updates (both read the old store, each writes
-    # back only its own key). file_store/response_store already do this.
-    with file_lock(path):
-        store = _load_store(path)
-        key = _session_key(provider, credentials)
-        # Re-insert at the end so this key counts as most-recent (dicts preserve
-        # insertion order); then evict the oldest entries beyond the cap.
-        store.pop(key, None)
-        store[key] = dict(state)
-        if len(store) > _MAX_SESSION_ENTRIES:
-            for stale_key in list(store.keys())[: len(store) - _MAX_SESSION_ENTRIES]:
-                store.pop(stale_key, None)
-        write_json_atomic(path, store, sensitive=True)
-    return path
+    """保存 provider 会话。
+
+    Args:
+        state_dir: 状态目录（保留参数，用于向后兼容）
+        provider: provider 名称
+        credentials: ProviderCredentialRecord
+        state: 会话状态
+
+    Returns:
+        保存路径（虚拟路径，用于向后兼容）
+    """
+    store = read_provider_sessions() or {}
+    key = _session_key(provider, credentials)
+
+    # Re-insert at the end so this key counts as most-recent (dicts preserve
+    # insertion order); then evict the oldest entries beyond the cap.
+    store.pop(key, None)
+    store[key] = dict(state)
+
+    if len(store) > _MAX_SESSION_ENTRIES:
+        for stale_key in list(store.keys())[: len(store) - _MAX_SESSION_ENTRIES]:
+            store.pop(stale_key, None)
+
+    write_provider_sessions(store)
+    return Path("provider-sessions.json")
 
 
 def credential_fingerprint(credentials: ProviderCredentialRecord) -> str:
+    """计算凭证指纹。"""
     payload = json.dumps(
         {
             "provider": credentials.provider,
@@ -73,27 +98,15 @@ def credential_fingerprint(credentials: ProviderCredentialRecord) -> str:
 
 
 def _session_key(provider: str, credentials: ProviderCredentialRecord) -> str:
+    """生成会话键。"""
     return f"{provider}:{credential_fingerprint(credentials)}"
 
 
 def _resolve_session_store_path(state_dir: Path) -> Path:
+    """获取会话存储路径。"""
     return state_dir / "provider-sessions.json"
 
 
-def _load_store(path: Path) -> dict[str, dict[str, str]]:
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    normalized: dict[str, dict[str, str]] = {}
-    for key, value in payload.items():
-        if isinstance(key, str) and isinstance(value, dict):
-            normalized[key] = {
-                str(item_key): str(item_value)
-                for item_key, item_value in value.items()
-            }
-    return normalized
+def _load_store(state_dir: Path) -> dict[str, object]:
+    """加载会话存储（测试用）。"""
+    return read_provider_sessions() or {}

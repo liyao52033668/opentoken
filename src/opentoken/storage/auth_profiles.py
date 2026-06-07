@@ -1,13 +1,17 @@
+"""认证 profiles 存储（使用 StorageBackend）。
+
+跨 provider 的认证 profile 存储，支持本地文件系统或 S3。
+"""
 from __future__ import annotations
 
 import copy
-import json
 from pathlib import Path
 
-from opentoken.storage._atomic import file_lock, write_json_atomic
-from opentoken.config.paths import resolve_state_dir
 from opentoken.models.provider_credentials import ProviderCredentialRecord
-
+from opentoken.storage.config_store import (
+    read_auth_profiles,
+    write_auth_profiles,
+)
 
 _DEFAULT_STORE: dict[str, object] = {
     "version": 1,
@@ -18,113 +22,145 @@ _DEFAULT_STORE: dict[str, object] = {
 }
 
 
+def resolve_auth_profiles_key() -> str:
+    """获取 auth-profiles 存储键（用于向后兼容）。"""
+    return "auth-profiles.json"
+
+
 def resolve_auth_profiles_path(providers_dir: Path) -> Path:
-    base_dir = providers_dir.parent if providers_dir.name == "providers" else providers_dir
-    return base_dir / "auth-profiles.json"
-
-
-def resolve_shared_auth_profiles_path(providers_dir: Path) -> Path | None:
-    base_dir = providers_dir.parent if providers_dir.name == "providers" else providers_dir
-    if base_dir.name == ".opentoken":
-        return base_dir.parent / ".opentoken" / "auth-profiles.json"
-    try:
-        if base_dir.resolve() == resolve_state_dir().resolve():
-            return base_dir.parent / ".opentoken" / "auth-profiles.json"
-    except OSError:
-        return None
-    return None
+    """获取 auth-profiles 文件路径。"""
+    return providers_dir / "auth-profiles.json"
 
 
 def load_auth_profile_record(providers_dir: Path, provider: str) -> ProviderCredentialRecord | None:
-    for path in _candidate_auth_profile_paths(providers_dir):
-        store = _load_store(path)
-        profiles = store.get("profiles", {})
-        if not isinstance(profiles, dict):
+    """加载指定 provider 的认证 profile。
+
+    Args:
+        providers_dir: providers 目录（保留参数，用于向后兼容）
+        provider: provider 名称
+
+    Returns:
+        ProviderCredentialRecord 或 None
+    """
+    store = read_auth_profiles()
+    if store is None:
+        store = copy.deepcopy(_DEFAULT_STORE)
+
+    profiles = store.get("profiles", {})
+    if not isinstance(profiles, dict):
+        profiles = {}
+        store["profiles"] = profiles
+
+    # 查找匹配的 profile
+    preferred_id = f"{provider}:default"
+    candidates: list[tuple[str, object]] = []
+    if preferred_id in profiles:
+        candidates.append((preferred_id, profiles[preferred_id]))
+    for profile_id, raw in profiles.items():
+        if profile_id == preferred_id:
             continue
+        if isinstance(raw, dict) and str(raw.get("provider", "")).strip() == provider:
+            candidates.append((profile_id, raw))
 
-        preferred_id = f"{provider}:default"
-        candidates: list[tuple[str, object]] = []
-        if preferred_id in profiles:
-            candidates.append((preferred_id, profiles[preferred_id]))
-        for profile_id, raw in profiles.items():
-            if profile_id == preferred_id:
-                continue
-            if isinstance(raw, dict) and str(raw.get("provider", "")).strip() == provider:
-                candidates.append((profile_id, raw))
-
-        for _, raw in candidates:
-            record = _decode_profile_record(raw)
-            if record is not None:
-                return record
+    for _, raw in candidates:
+        record = _decode_profile_record(raw)
+        if record is not None:
+            return record
     return None
 
 
 def list_auth_profile_records(providers_dir: Path) -> list[ProviderCredentialRecord]:
-    deduped: dict[str, ProviderCredentialRecord] = {}
-    for path in _candidate_auth_profile_paths(providers_dir):
-        store = _load_store(path)
-        profiles = store.get("profiles", {})
-        if not isinstance(profiles, dict):
-            continue
+    """列出所有认证 profiles。
 
-        for profile_id, raw in profiles.items():
-            record = _decode_profile_record(raw)
-            if record is None:
-                continue
-            preferred = deduped.get(record.provider)
-            if preferred is None or profile_id == f"{record.provider}:default":
-                deduped[record.provider] = record
+    Args:
+        providers_dir: providers 目录（保留参数，用于向后兼容）
+
+    Returns:
+        ProviderCredentialRecord 列表
+    """
+    store = read_auth_profiles()
+    if store is None:
+        store = copy.deepcopy(_DEFAULT_STORE)
+
+    profiles = store.get("profiles", {})
+    if not isinstance(profiles, dict):
+        profiles = {}
+
+    deduped: dict[str, ProviderCredentialRecord] = {}
+    for profile_id, raw in profiles.items():
+        record = _decode_profile_record(raw)
+        if record is None:
+            continue
+        preferred = deduped.get(record.provider)
+        if preferred is None or profile_id == f"{record.provider}:default":
+            deduped[record.provider] = record
     return [deduped[key] for key in sorted(deduped)]
 
 
 def save_auth_profile_record(providers_dir: Path, record: ProviderCredentialRecord) -> Path:
-    saved_path: Path | None = None
-    for path in _candidate_auth_profile_paths(providers_dir):
-        # Lock per-store so concurrent logins for different providers don't lose
-        # each other's profile when both read-modify-write the same file.
-        with file_lock(path):
-            store = _load_store(path)
-            profiles = store.setdefault("profiles", {})
-            if not isinstance(profiles, dict):
-                profiles = {}
-                store["profiles"] = profiles
-            profiles[f"{record.provider}:default"] = {
-                "type": "token",
-                "provider": record.provider,
-                "token": record.model_dump_json(),
-            }
-            _save_store(path, store)
-        if saved_path is None:
-            saved_path = path
-    return saved_path or resolve_auth_profiles_path(providers_dir)
+    """保存认证 profile。
+
+    Args:
+        providers_dir: providers 目录（保留参数，用于向后兼容）
+        record: ProviderCredentialRecord
+
+    Returns:
+        保存路径（虚拟路径，用于向后兼容）
+    """
+    store = read_auth_profiles()
+    if store is None:
+        store = copy.deepcopy(_DEFAULT_STORE)
+
+    profiles = store.setdefault("profiles", {})
+    if not isinstance(profiles, dict):
+        profiles = {}
+        store["profiles"] = profiles
+
+    profiles[f"{record.provider}:default"] = {
+        "type": "token",
+        "provider": record.provider,
+        "token": record.model_dump_json(),
+    }
+    write_auth_profiles(store)
+    return Path("auth-profiles.json")
 
 
 def delete_auth_profile_record(providers_dir: Path, provider: str) -> bool:
-    deleted = False
-    for path in _candidate_auth_profile_paths(providers_dir):
-        # Re-read inside the lock so we delete from the current store, not a
-        # stale snapshot, and don't clobber a concurrent writer's changes.
-        with file_lock(path):
-            store = _load_store(path)
-            profiles = store.get("profiles", {})
-            if not isinstance(profiles, dict):
-                continue
-            profile_ids = [
-                profile_id
-                for profile_id, raw in profiles.items()
-                if profile_id == f"{provider}:default"
-                or (isinstance(raw, dict) and str(raw.get("provider", "")).strip() == provider)
-            ]
-            if not profile_ids:
-                continue
-            for profile_id in profile_ids:
-                profiles.pop(profile_id, None)
-            _save_store(path, store)
-            deleted = True
-    return deleted
+    """删除指定 provider 的认证 profile。
+
+    Args:
+        providers_dir: providers 目录（保留参数，用于向后兼容）
+        provider: provider 名称
+
+    Returns:
+        是否删除成功
+    """
+    store = read_auth_profiles()
+    if store is None:
+        return False
+
+    profiles = store.get("profiles", {})
+    if not isinstance(profiles, dict):
+        return False
+
+    profile_ids = [
+        profile_id
+        for profile_id, raw in profiles.items()
+        if profile_id == f"{provider}:default"
+        or (isinstance(raw, dict) and str(raw.get("provider", "")).strip() == provider)
+    ]
+    if not profile_ids:
+        return False
+
+    for profile_id in profile_ids:
+        profiles.pop(profile_id, None)
+
+    write_auth_profiles(store)
+    return True
 
 
 def _decode_profile_record(raw: object) -> ProviderCredentialRecord | None:
+    """解码 profile 记录为 ProviderCredentialRecord。"""
     if not isinstance(raw, dict):
         return None
 
@@ -141,28 +177,19 @@ def _decode_profile_record(raw: object) -> ProviderCredentialRecord | None:
         return None
 
 
-def _load_store(path: Path) -> dict[str, object]:
-    if not path.exists():
+# ============================================================
+# 内部函数（用于测试，保持向后兼容）
+# ============================================================
+
+
+def _load_store(providers_dir: Path) -> dict[str, object]:
+    """加载 auth-profiles 存储（测试用）。"""
+    store = read_auth_profiles()
+    if store is None:
         return copy.deepcopy(_DEFAULT_STORE)
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return copy.deepcopy(_DEFAULT_STORE)
-    if not isinstance(payload, dict):
-        return copy.deepcopy(_DEFAULT_STORE)
-    store = copy.deepcopy(_DEFAULT_STORE)
-    store.update(payload)
     return store
 
 
-def _save_store(path: Path, store: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_json_atomic(path, store, sensitive=True)
-
-
-def _candidate_auth_profile_paths(providers_dir: Path) -> list[Path]:
-    paths = [resolve_auth_profiles_path(providers_dir)]
-    shared = resolve_shared_auth_profiles_path(providers_dir)
-    if shared is not None and shared not in paths:
-        paths.append(shared)
-    return paths
+def _save_store(providers_dir: Path, store: dict[str, object]) -> None:
+    """保存 auth-profiles 存储（测试用）。"""
+    write_auth_profiles(store)

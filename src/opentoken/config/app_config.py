@@ -1,16 +1,21 @@
+"""网关配置管理。
+
+优先从环境变量读取配置，存储使用 StorageBackend。
+"""
+from __future__ import annotations
+
 import json
 import logging
 import os
 import secrets
 from pathlib import Path
 
-from opentoken.storage._atomic import write_json_atomic
-
 logger = logging.getLogger(__name__)
 _ENV_API_KEY = "OPENTOKEN_API_KEY"
 
 
 def default_app_config() -> dict[str, object]:
+    """生成默认网关配置。"""
     env_key = os.getenv(_ENV_API_KEY)
     if env_key:
         api_key = env_key
@@ -24,32 +29,35 @@ def default_app_config() -> dict[str, object]:
     }
 
 
-def load_or_create_app_config(config_path: Path) -> dict[str, object]:
-    if config_path.exists():
-        try:
-            parsed = json.loads(config_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            # A corrupt/truncated config used to crash every CLI entry point
-            # (start, status, config, doctor) with a raw JSONDecodeError stack
-            # trace and no recovery hint. Surface a clear actionable error
-            # instead. Don't silently regenerate — that would lose the user's
-            # API key and break clients holding the old one.
-            raise RuntimeError(
-                f"Configuration file is unreadable: {config_path}. "
-                f"Repair or remove it and restart. ({exc.__class__.__name__}: {exc})"
-            ) from exc
-        if isinstance(parsed, dict):
-            # 环境变量优先：运行时覆盖配置文件中的值
-            env_key = os.getenv(_ENV_API_KEY)
-            if env_key:
-                parsed["api_key"] = env_key
-            return parsed
-        raise RuntimeError(
-            f"Configuration file {config_path} is not a JSON object."
-        )
-    payload = default_app_config()
-    # config.json holds the local gateway API key — write atomically and
-    # owner-only (0600) so it isn't briefly world-readable on a shared host.
-    write_json_atomic(config_path, payload, sensitive=True)
-    return payload
+def load_or_create_app_config(state_dir: Path) -> dict[str, object]:
+    """加载或创建网关配置。
 
+    配置存储使用 StorageBackend（支持本地文件系统或 S3）。
+
+    Args:
+        state_dir: 状态目录（保留参数，用于向后兼容）
+
+    Returns:
+        网关配置字典
+    """
+    from opentoken.storage.config_store import read_config, write_config
+
+    # 读取配置
+    config = read_config()
+
+    if config is not None:
+        # 配置文件存在，验证格式
+        if not isinstance(config, dict):
+            raise RuntimeError(
+                "Configuration file is not a JSON object."
+            )
+        # 环境变量优先：运行时覆盖配置文件中的值
+        env_key = os.getenv(_ENV_API_KEY)
+        if env_key:
+            config["api_key"] = env_key
+        return config
+
+    # 配置不存在，创建默认配置
+    payload = default_app_config()
+    write_config(payload)
+    return payload
