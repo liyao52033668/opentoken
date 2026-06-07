@@ -131,6 +131,17 @@ def _extract_glm_intl_frontend_version(html: str) -> str:
 def _extract_glm_intl_phased_segments(payload: dict[str, object]) -> list[tuple[str, str]]:
     if not isinstance(payload, dict):
         return []
+    
+    # 尝试从 choices 中提取数据（OpenAI 兼容格式）
+    choices = payload.get("choices", [])
+    for choice in choices:
+        if isinstance(choice, dict):
+            delta = choice.get("delta", {})
+            if isinstance(delta, dict):
+                content = delta.get("content")
+                if isinstance(content, str) and content:
+                    return [("answer", content)]
+    
     data = payload.get("data")
     if not isinstance(data, dict):
         return []
@@ -851,12 +862,28 @@ class GLMIntlApiClient(GLMApiClient):
                 if not line or not line.startswith("data:"):
                     continue
                 data_str = line[5:].strip()
-                if not data_str or data_str == "[DONE]":
+                if not data_str:
                     continue
+                if data_str == "[DONE]":
+                    break
                 try:
                     payload = json.loads(data_str)
                 except json.JSONDecodeError:
                     continue
+                
+                # 检查 finish_reason 来判断流是否结束
+                if isinstance(payload, dict):
+                    choices = payload.get("choices", [])
+                    for choice in choices:
+                        if isinstance(choice, dict) and choice.get("finish_reason") is not None:
+                            tail = projector.finish()
+                            if tail:
+                                saw_any_piece = True
+                                yield tail
+                            if not saw_any_piece:
+                                raise RuntimeError("GLM Intl chat completion returned no streamed text content.")
+                            return
+                
                 error_detail = _extract_glm_intl_stream_error(payload)
                 if error_detail:
                     raise RuntimeError(error_detail)
