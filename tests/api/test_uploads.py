@@ -144,12 +144,13 @@ def test_uploads_complete_when_part_blob_missing_marks_cancelled(monkeypatch, tm
         files={"data": ("p1", b"abcdef", "application/octet-stream")},
     )
     assert part_response.status_code == 200
+    part_id = part_response.json()["id"]
 
-    # 手动删 part blob 模拟磁盘清理
-    import shutil
-    blob_dir = tmp_path / "uploads"
-    if blob_dir.exists():
-        shutil.rmtree(blob_dir)
+    # 通过 StorageBackend 删除 part blob 模拟磁盘清理
+    from opentoken.storage.factory import get_storage_backend
+    backend = get_storage_backend()
+    blob_key = f"uploads/{upload_id}/{part_id}.bin"
+    backend.delete(blob_key)
 
     complete_response = client.post(f"/v1/uploads/{upload_id}/complete", json={})
     assert complete_response.status_code == 404

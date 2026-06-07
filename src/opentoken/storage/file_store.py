@@ -1,14 +1,13 @@
+"""文件存储（使用抽象存储后端）。"""
 from __future__ import annotations
 
 import copy
-import json
-import os
 import re
 from pathlib import Path
 from time import time
 from uuid import uuid4
 
-from opentoken.storage._atomic import file_lock, write_json_atomic
+from opentoken.storage.factory import get_storage_backend
 
 
 _SAFE_FILE_ID = re.compile(r"^file-[A-Za-z0-9]{16,}$")
@@ -17,6 +16,9 @@ _DEFAULT_STORE: dict[str, object] = {
     "version": 1,
     "files": {},
 }
+
+# 元数据存储键
+_METADATA_KEY = "files.json"
 
 
 def create_file(
@@ -27,6 +29,18 @@ def create_file(
     purpose: str,
     mime_type: str | None = None,
 ) -> dict[str, object]:
+    """创建文件。
+
+    Args:
+        state_dir: 状态目录（保留用于向后兼容，实际使用 StorageBackend）
+        filename: 文件名
+        content: 文件内容
+        purpose: 用途
+        mime_type: MIME 类型
+
+    Returns:
+        文件元数据
+    """
     file_id = f"file-{uuid4().hex}"
     metadata = {
         "id": file_id,
@@ -38,36 +52,30 @@ def create_file(
         "status": "processed",
         "mime_type": mime_type or "application/octet-stream",
     }
-    path = _resolve_store_path(state_dir)
-    blob_path = _resolve_blob_path(state_dir, file_id)
-    with file_lock(path):
-        # Write blob and commit metadata together under the lock. Without this
-        # a concurrent delete_file between metadata commit and blob write would
-        # leave an orphan .bin (delete's unlink runs while blob doesn't yet
-        # exist, then create's write_bytes lands), and a concurrent reader
-        # would see metadata-but-no-bytes. Atomic tmp+rename for the blob keeps
-        # readers from observing a partial write even within the lock window.
-        tmp_blob = blob_path.with_name(blob_path.name + ".tmp")
-        tmp_blob.write_bytes(content)
-        # 0600 before the rename: uploaded file content (images, PDFs, source
-        # files) is user data that must not be world-readable on a shared host.
-        try:
-            os.chmod(tmp_blob, 0o600)
-        except OSError:
-            pass
-        os.replace(tmp_blob, blob_path)
-        store = _load_store(path)
+
+    backend = get_storage_backend()
+    blob_key = _resolve_blob_key(file_id)
+
+    with backend.acquire_lock(_METADATA_KEY):
+        # 先写文件内容，再更新元数据
+        backend.write_bytes(blob_key, content)
+
+        # 更新元数据
+        store = _load_store(backend)
         files = store.setdefault("files", {})
         if not isinstance(files, dict):
             files = {}
             store["files"] = files
         files[file_id] = copy.deepcopy(metadata)
-        _save_store(path, store)
+        _save_store(backend, store)
+
     return copy.deepcopy(metadata)
 
 
 def list_files(state_dir: Path) -> list[dict[str, object]]:
-    store = _load_store(_resolve_store_path(state_dir))
+    """列出所有文件。"""
+    backend = get_storage_backend()
+    store = _load_store(backend)
     files = store.get("files", {})
     if not isinstance(files, dict):
         return []
@@ -80,7 +88,9 @@ def list_files(state_dir: Path) -> list[dict[str, object]]:
 
 
 def get_file(state_dir: Path, file_id: str) -> dict[str, object] | None:
-    store = _load_store(_resolve_store_path(state_dir))
+    """获取文件元数据。"""
+    backend = get_storage_backend()
+    store = _load_store(backend)
     files = store.get("files", {})
     if not isinstance(files, dict):
         return None
@@ -91,31 +101,39 @@ def get_file(state_dir: Path, file_id: str) -> dict[str, object] | None:
 
 
 def read_file_content(state_dir: Path, file_id: str) -> tuple[dict[str, object], bytes] | None:
+    """读取文件内容。"""
     metadata = get_file(state_dir, file_id)
     if metadata is None:
         return None
-    blob_path = _resolve_blob_path(state_dir, file_id)
-    if not blob_path.exists():
+
+    backend = get_storage_backend()
+    blob_key = _resolve_blob_key(file_id)
+    content = backend.read_bytes(blob_key)
+    if content is None:
         return None
-    return metadata, blob_path.read_bytes()
+
+    return metadata, content
 
 
 def delete_file(state_dir: Path, file_id: str) -> bool:
+    """删除文件。"""
     if not _SAFE_FILE_ID.match(file_id):
         return False
-    path = _resolve_store_path(state_dir)
-    with file_lock(path):
-        store = _load_store(path)
+
+    backend = get_storage_backend()
+
+    with backend.acquire_lock(_METADATA_KEY):
+        store = _load_store(backend)
         files = store.get("files", {})
         if not isinstance(files, dict) or file_id not in files:
             return False
         files.pop(file_id, None)
-        _save_store(path, store)
-    blob_path = _resolve_blob_path(state_dir, file_id)
-    try:
-        blob_path.unlink(missing_ok=True)
-    except OSError:
-        pass
+        _save_store(backend, store)
+
+    # 删除文件内容
+    blob_key = _resolve_blob_key(file_id)
+    backend.delete(blob_key)
+
     return True
 
 
@@ -132,35 +150,23 @@ def _public_metadata(entry: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _resolve_store_path(state_dir: Path) -> Path:
-    return state_dir / "files.json"
-
-
-def _resolve_blob_path(state_dir: Path, file_id: str) -> Path:
-    # Reject anything that doesn't look like an id we minted — this is the only
-    # surface that turns a caller-controlled string into a filesystem path, so
-    # treat it as untrusted and refuse traversal attempts (``../``, embedded
-    # ``/`` separators, NULs, empty strings).
+def _resolve_blob_key(file_id: str) -> str:
+    """解析文件内容的存储键。"""
     if not _SAFE_FILE_ID.match(file_id):
         raise ValueError(f"Refusing to resolve unsafe file id: {file_id!r}")
-    blob_path = state_dir / "files" / f"{file_id}.bin"
-    blob_path.parent.mkdir(parents=True, exist_ok=True)
-    return blob_path
+    return f"files/{file_id}.bin"
 
 
-def _load_store(path: Path) -> dict[str, object]:
-    if not path.exists():
+def _load_store(backend) -> dict[str, object]:
+    """加载元数据存储。"""
+    store = backend.read_json(_METADATA_KEY)
+    if store is None:
         return copy.deepcopy(_DEFAULT_STORE)
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return copy.deepcopy(_DEFAULT_STORE)
-    if not isinstance(payload, dict):
-        return copy.deepcopy(_DEFAULT_STORE)
-    store = copy.deepcopy(_DEFAULT_STORE)
-    store.update(payload)
-    return store
+    result = copy.deepcopy(_DEFAULT_STORE)
+    result.update(store)
+    return result
 
 
-def _save_store(path: Path, store: dict[str, object]) -> None:
-    write_json_atomic(path, store)
+def _save_store(backend, store: dict[str, object]) -> None:
+    """保存元数据存储。"""
+    backend.write_json(_METADATA_KEY, store)

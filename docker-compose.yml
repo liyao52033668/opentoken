@@ -7,9 +7,23 @@ services:
       - "32117:32117"
     volumes:
       - opentoken-data:/app/data
-    # 如需配置代理或固定 API Key，取消下面的注释
+    # 环境变量配置（取消注释启用）
     # environment:
+    #   # 网关 API Key（不设置时自动生成并打印到日志）
     #   OPENTOKEN_API_KEY: your-api-key-here
+    #
+    #   # 存储后端: "local" (默认) 或 "s3"
+    #   OPENTOKEN_STORAGE_BACKEND: local
+    #
+    #   # S3 配置（当 OPENTOKEN_STORAGE_BACKEND=s3 时需要）
+    #   # OPENTOKEN_S3_ENDPOINT: http://minio:9000  # MinIO 示例
+    #   # OPENTOKEN_S3_REGION: us-east-1
+    #   # OPENTOKEN_S3_BUCKET: opentoken-data
+    #   # OPENTOKEN_S3_ACCESS_KEY: your-access-key
+    #   # OPENTOKEN_S3_SECRET_KEY: your-secret-key
+    #   # OPENTOKEN_S3_PREFIX: opentoken/
+    #
+    #   # 代理配置
     #   HTTP_PROXY: http://your-proxy:7890
     #   HTTPS_PROXY: http://your-proxy:7890
 

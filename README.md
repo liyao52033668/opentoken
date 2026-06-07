@@ -69,6 +69,55 @@ Python **>= 3.13**，推荐用 [`uv`](https://docs.astral.sh/uv/)。
 
 所有凭证 / cookie / token / 上传内容文件 0600（owner-only），目录树 0700（不可列）。所有 JSON 持久化走原子写（tmp + os.replace + flock）+ sensitive=True 强制 chmod。多用户主机上别人既看不到你的 cookie 也看不到对话历史和上传文件。
 
+## 存储后端配置
+
+OpenToken 支持可插拔的存储后端，通过环境变量配置：
+
+### 本地文件系统（默认）
+
+```bash
+# 默认使用本地文件系统，无需配置
+# OPENTOKEN_STORAGE_BACKEND=local
+
+# 自定义状态目录
+export OPENTOKEN_STATE_DIR=/data/opentoken
+```
+
+### S3 兼容对象存储
+
+支持所有兼容 S3 API 的对象存储：AWS S3、MinIO、阿里云 OSS、腾讯云 COS、Cloudflare R2 等。
+
+```bash
+export OPENTOKEN_STORAGE_BACKEND=s3
+export OPENTOKEN_S3_BUCKET=opentoken-data
+export OPENTOKEN_S3_ACCESS_KEY=your-access-key
+export OPENTOKEN_S3_SECRET_KEY=your-secret-key
+
+# 可选配置
+export OPENTOKEN_S3_ENDPOINT=http://localhost:9000  # MinIO 示例
+export OPENTOKEN_S3_REGION=us-east-1
+export OPENTOKEN_S3_PREFIX=opentoken/
+```
+
+**Docker Compose 配置示例**：
+
+```yaml
+services:
+  opentoken:
+    image: ghcr.io/liyao52033668/opentoken
+    environment:
+      OPENTOKEN_STORAGE_BACKEND: s3
+      OPENTOKEN_S3_ENDPOINT: http://minio:9000
+      OPENTOKEN_S3_BUCKET: opentoken-data
+      OPENTOKEN_S3_ACCESS_KEY: minioadmin
+      OPENTOKEN_S3_SECRET_KEY: minioadmin
+```
+
+**注意事项**：
+- S3 后端使用内存锁，仅适用于单实例部署
+- 多实例部署需要实现分布式锁（如 DynamoDB Lock Client）
+- 生产环境建议使用 AWS S3 或 MinIO 集群
+
 ## 快速开始
 
 ```bash

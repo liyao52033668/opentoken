@@ -1,17 +1,21 @@
+"""上传存储（使用抽象存储后端）。"""
 from __future__ import annotations
 
 import copy
-import json
-import os
 from pathlib import Path
-from opentoken.storage._atomic import file_lock, write_json_atomic
 from time import time
 from uuid import uuid4
+
+from opentoken.storage.factory import get_storage_backend
+
 
 _DEFAULT_STORE: dict[str, object] = {
     "version": 1,
     "uploads": {},
 }
+
+# 元数据存储键
+_METADATA_KEY = "uploads.json"
 
 
 class UploadSizeExceededError(Exception):
@@ -28,6 +32,7 @@ def create_upload(
     mime_type: str | None,
     purpose: str,
 ) -> dict[str, object]:
+    """创建上传会话。"""
     upload_id = f"upload-{uuid4().hex}"
     metadata = {
         "id": upload_id,
@@ -40,20 +45,25 @@ def create_upload(
         "status": "created",
         "parts": [],
     }
-    path = _resolve_store_path(state_dir)
-    with file_lock(path):
-        store = _load_store(path)
+
+    backend = get_storage_backend()
+
+    with backend.acquire_lock(_METADATA_KEY):
+        store = _load_store(backend)
         uploads = store.setdefault("uploads", {})
         if not isinstance(uploads, dict):
             uploads = {}
             store["uploads"] = uploads
         uploads[upload_id] = metadata
-        _save_store(path, store)
+        _save_store(backend, store)
+
     return _public_upload(metadata)
 
 
 def get_upload(state_dir: Path, upload_id: str) -> dict[str, object] | None:
-    uploads = _load_store(_resolve_store_path(state_dir)).get("uploads", {})
+    """获取上传会话。"""
+    backend = get_storage_backend()
+    uploads = _load_store(backend).get("uploads", {})
     if not isinstance(uploads, dict):
         return None
     entry = uploads.get(upload_id)
@@ -69,11 +79,11 @@ def add_upload_part(
     content: bytes,
     content_type: str | None = None,
 ) -> dict[str, object] | None:
-    path = _resolve_store_path(state_dir)
-    # Concurrent parts on the same upload must not lose each other: without a
-    # lock both load the same parts list, each appends its own, last write wins.
-    with file_lock(path):
-        store = _load_store(path)
+    """添加上传分片。"""
+    backend = get_storage_backend()
+
+    with backend.acquire_lock(_METADATA_KEY):
+        store = _load_store(backend)
         uploads = store.get("uploads", {})
         if not isinstance(uploads, dict):
             return None
@@ -86,12 +96,8 @@ def add_upload_part(
         if not isinstance(parts, list):
             parts = []
             entry["parts"] = parts
-        # Reject parts that would push the upload past its declared size. Since
-        # complete_upload concatenates every part into one in-memory buffer,
-        # an unbounded number of parts is an OOM vector even with a per-part
-        # cap; bounding the running total to the declared `bytes` keeps peak
-        # memory tied to the (already capped) declaration. _RAISE_OVER_DECLARED
-        # is signalled to the route so it can return 413.
+
+        # 检查分片大小是否超出声明
         declared = int(entry.get("bytes", 0) or 0)
         existing_total = sum(
             int(p.get("bytes", 0) or 0) for p in parts if isinstance(p, dict)
@@ -100,6 +106,7 @@ def add_upload_part(
             raise UploadSizeExceededError(
                 f"Upload {upload_id} parts exceed the declared size of {declared} bytes."
             )
+
         part_id = f"part-{uuid4().hex}"
         part = {
             "id": part_id,
@@ -110,15 +117,12 @@ def add_upload_part(
             "content_type": content_type or "application/octet-stream",
         }
         parts.append(part)
-        _save_store(path, store)
-        # 0600 owner-only: upload parts hold user-supplied content (images,
-        # docs, source files) that must not be world-readable on a shared host.
-        blob_path = _resolve_part_blob_path(state_dir, upload_id, part_id)
-        blob_path.write_bytes(content)
-        try:
-            os.chmod(blob_path, 0o600)
-        except OSError:
-            pass
+        _save_store(backend, store)
+
+        # 写入分片内容
+        blob_key = _resolve_part_blob_key(upload_id, part_id)
+        backend.write_bytes(blob_key, content)
+
     return copy.deepcopy(part)
 
 
@@ -128,9 +132,11 @@ def complete_upload(
     *,
     part_ids: list[str] | None = None,
 ) -> tuple[dict[str, object], bytes] | None:
-    path = _resolve_store_path(state_dir)
-    with file_lock(path):
-        store = _load_store(path)
+    """完成上传。"""
+    backend = get_storage_backend()
+
+    with backend.acquire_lock(_METADATA_KEY):
+        store = _load_store(backend)
         uploads = store.get("uploads", {})
         if not isinstance(uploads, dict):
             return None
@@ -158,43 +164,43 @@ def complete_upload(
         else:
             ordered_parts = [part for part in parts if isinstance(part, dict)]
 
-        part_blob_paths = [
-            _resolve_part_blob_path(state_dir, upload_id, str(part.get("id", "")))
+        # 读取所有分片内容
+        part_blob_keys = [
+            _resolve_part_blob_key(upload_id, str(part.get("id", "")))
             for part in ordered_parts
         ]
-        # 如果某个 part .bin 被删了（磁盘清理 / 外部 unlink）,read_bytes 会
-        # FileNotFoundError 传到调用方 → 500,且 entry.status 还是 "created" →
-        # 后续 add_upload_part 还能继续追加,但这个 upload 已经永远 broken。
-        # 改为：若有 part 缺失,把 upload mark 成 cancelled 并返 None,客户端
-        # 拿到 404 后会知道要重新 create,而不是不停往坏的 upload 追加。
         try:
-            content = b"".join(blob_path.read_bytes() for blob_path in part_blob_paths)
+            content_parts = []
+            for blob_key in part_blob_keys:
+                part_content = backend.read_bytes(blob_key)
+                if part_content is None:
+                    raise FileNotFoundError
+                content_parts.append(part_content)
+            content = b"".join(content_parts)
         except FileNotFoundError:
             entry["status"] = "cancelled"
             entry["cancelled_reason"] = "missing_part_blob"
             entry["cancelled_at"] = int(time())
-            _save_store(path, store)
+            _save_store(backend, store)
             return None
+
         entry["status"] = "completed"
         entry["completed_at"] = int(time())
-        _save_store(path, store)
+        _save_store(backend, store)
 
-        # Free the per-part blobs once the upload is materialised — leaving them around
-        # accumulates per-upload temp files forever and lets a duplicated upload_id step
-        # on stale data.
-        for blob_path in part_blob_paths:
-            try:
-                blob_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+        # 清理分片文件
+        for blob_key in part_blob_keys:
+            backend.delete(blob_key)
 
     return _public_upload(entry), content
 
 
 def cancel_upload(state_dir: Path, upload_id: str) -> dict[str, object] | None:
-    path = _resolve_store_path(state_dir)
-    with file_lock(path):
-        store = _load_store(path)
+    """取消上传。"""
+    backend = get_storage_backend()
+
+    with backend.acquire_lock(_METADATA_KEY):
+        store = _load_store(backend)
         uploads = store.get("uploads", {})
         if not isinstance(uploads, dict):
             return None
@@ -203,7 +209,8 @@ def cancel_upload(state_dir: Path, upload_id: str) -> dict[str, object] | None:
             return None
         entry["status"] = "cancelled"
         entry["cancelled_at"] = int(time())
-        _save_store(path, store)
+        _save_store(backend, store)
+
     return _public_upload(entry)
 
 
@@ -223,30 +230,21 @@ def _public_upload(entry: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _resolve_store_path(state_dir: Path) -> Path:
-    return state_dir / "uploads.json"
+def _resolve_part_blob_key(upload_id: str, part_id: str) -> str:
+    """解析分片内容的存储键。"""
+    return f"uploads/{upload_id}/{part_id}.bin"
 
 
-def _resolve_part_blob_path(state_dir: Path, upload_id: str, part_id: str) -> Path:
-    blob_path = state_dir / "uploads" / upload_id / f"{part_id}.bin"
-    blob_path.parent.mkdir(parents=True, exist_ok=True)
-    return blob_path
-
-
-def _load_store(path: Path) -> dict[str, object]:
-    if not path.exists():
+def _load_store(backend) -> dict[str, object]:
+    """加载元数据存储。"""
+    store = backend.read_json(_METADATA_KEY)
+    if store is None:
         return copy.deepcopy(_DEFAULT_STORE)
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return copy.deepcopy(_DEFAULT_STORE)
-    if not isinstance(payload, dict):
-        return copy.deepcopy(_DEFAULT_STORE)
-    store = copy.deepcopy(_DEFAULT_STORE)
-    store.update(payload)
-    return store
+    result = copy.deepcopy(_DEFAULT_STORE)
+    result.update(store)
+    return result
 
 
-def _save_store(path: Path, store: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_json_atomic(path, store)
+def _save_store(backend, store: dict[str, object]) -> None:
+    """保存元数据存储。"""
+    backend.write_json(_METADATA_KEY, store)
