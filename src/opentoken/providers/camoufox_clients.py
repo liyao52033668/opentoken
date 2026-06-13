@@ -327,110 +327,119 @@ class CamoufoxProviderClient:
 
     def _chat_qwen_intl(self, *, message: str, model: str) -> str:
         def action(_context, page):
-            created = page.evaluate(
-                """
-                async ({ baseUrl }) => {
-                  const res = await fetch(`${baseUrl}/api/v2/chats/new`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({}),
-                    // credentials:"include" is mandatory: without it the fetch
-                    // does NOT carry the browser context's cookies, so the WAF
-                    // clearance cookie (acquired by page.goto executing the JS
-                    // challenge) never reaches the API → every request gets the
-                    // WAF HTML risk page. This was the asymmetry that made
-                    // streaming (_stream_qwen_intl_browser_completion, which DID
-                    // pass credentials:"include") work while non-streaming was
-                    // WAF-blocked.
-                    credentials: "include",
-                  });
-                  if (!res.ok) {
-                    return { ok: false, status: res.status, error: await res.text() };
-                  }
-                  // The WAF returns 200 with an HTML risk page (aliyun_waf JS
-                  // challenge) instead of JSON; res.json() would throw inside the
-                  // page and surface as a Playwright error → opaque 500. Detect
-                  // it here and return a structured waf block instead.
-                  const ctype = res.headers.get("content-type") || "";
-                  if (!ctype.toLowerCase().includes("application/json")) {
-                    return { ok: false, status: res.status, waf: true };
-                  }
-                  const data = await res.json();
-                  return { ok: true, chatId: data?.data?.id ?? data?.chat_id ?? data?.id ?? data?.chatId };
-                }
-                """,
-                {"baseUrl": _QWEN_INTL_BASE_URL},
-            )
-            if not created.get("ok"):
-                if created.get("waf"):
-                    raise QwenWafBlockedError(
-                        "Qwen Intl API blocked by WAF risk page from the browser "
-                        "context (non-JSON response); the saved session no longer "
-                        "passes the WAF challenge. Run `opentoken login qwen` again."
+            def browser_fetch() -> str:
+                created = page.evaluate(
+                    """
+                    async ({ baseUrl }) => {
+                      const res = await fetch(`${baseUrl}/api/v2/chats/new`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({}),
+                        // credentials:"include" is mandatory: without it the fetch
+                        // does NOT carry the browser context's cookies, so the WAF
+                        // clearance cookie (acquired by page.goto executing the JS
+                        // challenge) never reaches the API → every request gets the
+                        // WAF HTML risk page.
+                        credentials: "include",
+                      });
+                      if (!res.ok) {
+                        return { ok: false, status: res.status, error: await res.text() };
+                      }
+                      const ctype = res.headers.get("content-type") || "";
+                      if (!ctype.toLowerCase().includes("application/json")) {
+                        return { ok: false, status: res.status, waf: true };
+                      }
+                      const data = await res.json();
+                      return { ok: true, chatId: data?.data?.id ?? data?.chat_id ?? data?.id ?? data?.chatId };
+                    }
+                    """,
+                    {"baseUrl": _QWEN_INTL_BASE_URL},
+                )
+                if not created.get("ok"):
+                    if created.get("waf"):
+                        raise QwenWafBlockedError(
+                            "Qwen Intl API blocked by WAF risk page from the browser "
+                            "context (non-JSON response); the saved session no longer "
+                            "passes the WAF challenge. Run `opentoken login qwen` again."
+                        )
+                    raise RuntimeError(
+                        f"Qwen International chat creation failed: {created.get('status')} {created.get('error', '')}"
                     )
-                raise RuntimeError(
-                    f"Qwen International chat creation failed: {created.get('status')} {created.get('error', '')}"
-                )
-            if not created.get("chatId"):
-                raise RuntimeError(
-                    f"Qwen International chat creation failed: {created.get('status')} {created.get('error', '')}"
-                )
-            response = page.evaluate(
-                """
-                async ({ baseUrl, chatId, model, message, fid }) => {
-                  const res = await fetch(`${baseUrl}/api/v2/chat/completions?chat_id=${chatId}`, {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Accept: "text/event-stream",
+                if not created.get("chatId"):
+                    raise RuntimeError(
+                        f"Qwen International chat creation failed: {created.get('status')} {created.get('error', '')}"
+                    )
+                response = page.evaluate(
+                    """
+                    async ({ baseUrl, chatId, model, message, fid, featureConfig }) => {
+                      const res = await fetch(`${baseUrl}/api/v2/chat/completions?chat_id=${chatId}`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Accept: "text/event-stream",
+                        },
+                        credentials: "include",
+                        body: JSON.stringify({
+                          stream: true,
+                          version: "2.1",
+                          incremental_output: true,
+                          chat_id: chatId,
+                          chat_mode: "normal",
+                          model,
+                          parent_id: null,
+                          messages: [{
+                            fid,
+                            parentId: null,
+                            childrenIds: [],
+                            role: "user",
+                            content: message,
+                            user_action: "chat",
+                            files: [],
+                            timestamp: Math.floor(Date.now() / 1000),
+                            models: [model],
+                            chat_type: "t2t",
+                            feature_config: featureConfig,
+                          }],
+                        }),
+                      });
+                      if (!res.ok) {
+                        return { ok: false, status: res.status, error: await res.text() };
+                      }
+                      const ctype = res.headers.get("content-type") || "";
+                      if (!ctype.toLowerCase().includes("text/event-stream")) {
+                        return { ok: false, status: res.status, waf: true };
+                      }
+                      return { ok: true, text: await res.text() };
+                    }
+                    """,
+                    {
+                        "baseUrl": _QWEN_INTL_BASE_URL,
+                        "chatId": created["chatId"],
+                        "model": model,
+                        "message": message,
+                        "fid": str(uuid4()),
+                        "featureConfig": _qwen_feature_config_for_model(model),
                     },
-                    credentials: "include",
-                    body: JSON.stringify({
-                      stream: true,
-                      version: "2.1",
-                      incremental_output: true,
-                      chat_id: chatId,
-                      chat_mode: "normal",
-                      model,
-                      parent_id: null,
-                      messages: [{
-                        fid,
-                        parentId: null,
-                        childrenIds: [],
-                        role: "user",
-                        content: message,
-                        user_action: "chat",
-                        files: [],
-                        timestamp: Math.floor(Date.now() / 1000),
-                        models: [model],
-                        chat_type: "t2t",
-                        feature_config: featureConfig,
-                      }],
-                    }),
-                  });
-                  if (!res.ok) {
-                    return { ok: false, status: res.status, error: await res.text() };
-                  }
-                  return { ok: true, text: await res.text() };
-                }
-                """,
-                {
-                    "baseUrl": _QWEN_INTL_BASE_URL,
-                    "chatId": created["chatId"],
-                    "model": model,
-                    "message": message,
-                    "fid": str(uuid4()),
-                    "featureConfig": _qwen_feature_config_for_model(model),
-                },
-            )
-            if not response.get("ok"):
-                raise RuntimeError(
-                    f"Qwen International request failed: {response.get('status')} {response.get('error', '')}"
                 )
-            content = _parse_sse_text(str(response.get("text", "")))
-            if not content:
-                raise RuntimeError("Qwen International returned no text content.")
-            return content
+                if not response.get("ok"):
+                    if response.get("waf"):
+                        raise QwenWafBlockedError(
+                            "Qwen Intl API blocked by WAF risk page from the browser "
+                            "context (non-SSE response); the saved session no longer "
+                            "passes the WAF challenge. Run `opentoken login qwen` again."
+                        )
+                    raise RuntimeError(
+                        f"Qwen International request failed: {response.get('status')} {response.get('error', '')}"
+                    )
+                content = _parse_sse_text(str(response.get("text", "")))
+                if not content:
+                    raise RuntimeError("Qwen International returned no text content.")
+                return content
+
+            try:
+                return browser_fetch()
+            except QwenWafBlockedError:
+                return "".join(_stream_qwen_intl_dom_completion(page, message=message, model=model))
 
         return self._with_page(
             start_url=f"{_QWEN_INTL_BASE_URL}/",

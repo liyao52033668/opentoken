@@ -164,9 +164,7 @@ def test_chat_qwen_intl_browser_fetches_pass_credentials_include() -> None:
 
     Without it the fetch does not carry the browser context's cookies, so the
     WAF clearance cookie (obtained when page.goto executes the JS challenge)
-    never reaches the upstream API and every request is WAF-blocked. This is
-    the asymmetry that made streaming (_stream_qwen_intl_browser_completion,
-    which does pass credentials:"include") succeed while non-streaming failed.
+    never reaches the upstream API and every request is WAF-blocked.
     The JS lives inline in the method source, so assert on the source string.
     """
     import inspect
@@ -174,13 +172,46 @@ def test_chat_qwen_intl_browser_fetches_pass_credentials_include() -> None:
     from opentoken.providers.camoufox_clients import CamoufoxProviderClient
 
     source = inspect.getsource(CamoufoxProviderClient._chat_qwen_intl)
-    # Two fetches (chats/new + chat/completions); both must carry credentials.
-    fetch_count = source.count("fetch(")
-    assert fetch_count == 2, f"expected 2 fetches in _chat_qwen_intl, got {fetch_count}"
+    # Two JS fetches (chats/new + chat/completions); both must carry credentials.
+    fetch_count = source.count("await fetch(`")
+    assert fetch_count == 2, f"expected 2 JS fetches in _chat_qwen_intl, got {fetch_count}"
     assert source.count('credentials: "include"') == 2, (
         "both _chat_qwen_intl fetches must pass credentials:\"include\" so the "
         "browser context's WAF clearance cookie reaches the upstream API"
     )
+
+
+def test_chat_qwen_intl_falls_back_to_dom_when_browser_fetch_hits_waf(monkeypatch) -> None:
+    credentials = ProviderCredentialRecord(
+        provider="qwen-intl",
+        kind="browser_session",
+        cookie="qwen_session=session-1",
+        headers={},
+        user_agent="ua",
+        metadata={},
+        status="valid",
+    )
+    client = CamoufoxProviderClient("qwen-intl", credentials)
+
+    class FakePage:
+        def evaluate(self, script: str, arg: dict[str, object]):
+            if "/api/v2/chats/new" in script:
+                return {"ok": False, "status": 200, "waf": True}
+            raise AssertionError(f"Unexpected script: {script[:80]}")
+
+    def fake_with_page(self, *, start_url: str, cookie_domains: tuple[str, ...], action):
+        return action(None, FakePage())
+
+    def fake_dom_stream(page, *, message: str, model: str):
+        assert message == "hello"
+        assert model == "qwen3.6-plus"
+        yield "你"
+        yield "好"
+
+    monkeypatch.setattr(CamoufoxProviderClient, "_with_page", fake_with_page)
+    monkeypatch.setattr(camoufox_module, "_stream_qwen_intl_dom_completion", fake_dom_stream)
+
+    assert client._chat_qwen_intl(message="hello", model="qwen3.6-plus") == "你好"
 
 
 def test_stream_qwen_intl_browser_completion_yields_incremental_chunks() -> None:
