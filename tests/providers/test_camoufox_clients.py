@@ -159,6 +159,30 @@ def test_extract_qwen_cn_candidate_text_ignores_pure_prompt_echo() -> None:
     assert text == ""
 
 
+def test_chat_qwen_intl_browser_fetches_pass_credentials_include() -> None:
+    """Non-streaming qwen-intl browser fetch must send credentials:"include".
+
+    Without it the fetch does not carry the browser context's cookies, so the
+    WAF clearance cookie (obtained when page.goto executes the JS challenge)
+    never reaches the upstream API and every request is WAF-blocked. This is
+    the asymmetry that made streaming (_stream_qwen_intl_browser_completion,
+    which does pass credentials:"include") succeed while non-streaming failed.
+    The JS lives inline in the method source, so assert on the source string.
+    """
+    import inspect
+
+    from opentoken.providers.camoufox_clients import CamoufoxProviderClient
+
+    source = inspect.getsource(CamoufoxProviderClient._chat_qwen_intl)
+    # Two fetches (chats/new + chat/completions); both must carry credentials.
+    fetch_count = source.count("fetch(")
+    assert fetch_count == 2, f"expected 2 fetches in _chat_qwen_intl, got {fetch_count}"
+    assert source.count('credentials: "include"') == 2, (
+        "both _chat_qwen_intl fetches must pass credentials:\"include\" so the "
+        "browser context's WAF clearance cookie reaches the upstream API"
+    )
+
+
 def test_stream_qwen_intl_browser_completion_yields_incremental_chunks() -> None:
     class FakePage:
         def __init__(self) -> None:
@@ -2645,7 +2669,7 @@ def test_stream_doubao_dom_completion_yields_incremental_text_and_persists_conve
     assert captured["persisted_conversation_id"] == "doubao-conv-dom"
     assert page.locator_instance.clicked is True
     assert page.keyboard.actions == [
-        ("press", camoufox_module._SELECT_ALL_CHORD),
+        ("press", "Meta+A"),
         ("press", "Backspace"),
         ("type", prompt),
     ]
@@ -3890,7 +3914,7 @@ def test_dom_send_and_wait_qwen_cn_types_prompt_and_returns_stable_markdown_repl
     assert text == "qwen-dom-scan"
     assert page.locator_instance.clicked is True
     assert page.keyboard.actions == [
-        ("press", camoufox_module._SELECT_ALL_CHORD),
+        ("press", "Meta+A"),
         ("press", "Backspace"),
         ("type", prompt),
         ("press", "Enter"),
@@ -3999,7 +4023,7 @@ def test_dom_send_and_wait_doubao_uses_live_textarea_selector_and_captures_respo
     assert persisted["conversation_id"] == "doubao-conv-1"
     assert page.locator_instance.clicked is True
     assert page.keyboard.actions == [
-        ("press", camoufox_module._SELECT_ALL_CHORD),
+        ("press", "Meta+A"),
         ("press", "Backspace"),
         ("type", prompt),
     ]
@@ -4282,7 +4306,7 @@ def test_dom_send_and_wait_glm_cn_presses_enter_and_parses_stream_response() -> 
         "conversation_id": "",
     }
     assert page.keyboard.actions == [
-        ("press", camoufox_module._SELECT_ALL_CHORD),
+        ("press", "Meta+A"),
         ("press", "Backspace"),
         ("type", prompt),
         ("press", "Enter"),

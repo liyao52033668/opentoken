@@ -334,6 +334,15 @@ class CamoufoxProviderClient:
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({}),
+                    // credentials:"include" is mandatory: without it the fetch
+                    // does NOT carry the browser context's cookies, so the WAF
+                    // clearance cookie (acquired by page.goto executing the JS
+                    // challenge) never reaches the API → every request gets the
+                    // WAF HTML risk page. This was the asymmetry that made
+                    // streaming (_stream_qwen_intl_browser_completion, which DID
+                    // pass credentials:"include") work while non-streaming was
+                    // WAF-blocked.
+                    credentials: "include",
                   });
                   if (!res.ok) {
                     return { ok: false, status: res.status, error: await res.text() };
@@ -375,6 +384,7 @@ class CamoufoxProviderClient:
                       "Content-Type": "application/json",
                       Accept: "text/event-stream",
                     },
+                    credentials: "include",
                     body: JSON.stringify({
                       stream: true,
                       version: "2.1",
