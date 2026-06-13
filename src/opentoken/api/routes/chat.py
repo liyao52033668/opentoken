@@ -221,6 +221,7 @@ def _stream_chat_completion(
             include_think = _should_include_think_in_chat_stream(request)
             projector = ProtocolMarkupProjector(include_think=include_think)
             try:
+                emitted_visible_content = False
                 for kind, raw_piece in _iter_with_heartbeat(content_stream):
                     if kind == "heartbeat":
                         yield _heartbeat_chunk(completion_id, created, request.model)
@@ -233,6 +234,7 @@ def _stream_chat_completion(
                     for visible_piece in _chunk_stream_text(piece, include_think=include_think):
                         if not visible_piece:
                             continue
+                        emitted_visible_content = True
                         content_chunk = {
                             "id": completion_id,
                             "object": "chat.completion.chunk",
@@ -269,6 +271,28 @@ def _stream_chat_completion(
                     # Parser failures should not corrupt the stream; fall through with
                     # finish_reason=stop and no tool_calls.
                     pass
+
+                if not emitted_visible_content and not stream_tool_calls:
+                    fallback_content = (strip_tool_protocol_markup(projector.raw_text, include_think=True) or "")
+                    fallback_content = fallback_content.replace("<think>", "").replace("</think>", "")
+                    for visible_piece in _chunk_stream_text(fallback_content, include_think=False):
+                        if not visible_piece:
+                            continue
+                        emitted_visible_content = True
+                        content_chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": request.model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": visible_piece},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                        yield f"data: {json.dumps(content_chunk, separators=(',', ':'))}\n\n"
 
                 if stream_tool_calls:
                     for tool_delta in _iter_stream_tool_call_deltas(stream_tool_calls):

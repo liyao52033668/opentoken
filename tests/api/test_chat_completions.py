@@ -133,6 +133,18 @@ class ThinkingToolCallRouter:
         )
 
 
+class ThinkOnlyStreamRouter:
+    def stream_chat(self, request):
+        assert request.model == "algae/glm-intl/GLM-5.1"
+        yield "<think>"
+        yield "深入"
+        yield "分析"
+        yield "</think>"
+
+    def chat(self, request):
+        raise AssertionError("stream=true should use stream_chat when available")
+
+
 def test_chat_completions_maps_upstream_http_errors_to_bad_gateway(monkeypatch) -> None:
     monkeypatch.setattr(chat_route_module, "get_default_router", lambda: HttpErrorRouter())
     client = TestClient(create_app())
@@ -518,21 +530,36 @@ def test_chat_completions_hides_think_content_before_tool_calls(monkeypatch) -> 
             "finish_reason": None,
         }
     ]
-    assert _collect_streamed_tool_calls(events) == [
-        {
-            "id": "call_weather_1",
-            "type": "function",
-            "function": {
-                "name": "get_weather",
-                "arguments": '{"location":"Tokyo"}',
-            },
-        }
+
+
+def test_chat_completions_salvages_think_only_stream_when_answer_never_arrives(monkeypatch) -> None:
+    monkeypatch.setattr(chat_route_module, "get_default_router", lambda: ThinkOnlyStreamRouter())
+    client = TestClient(create_app())
+
+    with client.stream(
+        "POST",
+        "/v1/chat/completions",
+        json={
+            "model": "algae/glm-intl/GLM-5.1",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+        },
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    events = _parse_chat_sse(body)
+    content_deltas = [
+        str(event["choices"][0]["delta"].get("content", ""))
+        for event in events[:-1]
+        if isinstance(event, dict) and "content" in event["choices"][0]["delta"]
     ]
+    assert "".join(content_deltas) == "深入分析"
     assert events[-2]["choices"] == [
         {
             "index": 0,
             "delta": {},
-            "finish_reason": "tool_calls",
+            "finish_reason": "stop",
         }
     ]
     assert events[-1] == "[DONE]"
