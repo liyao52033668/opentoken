@@ -2211,6 +2211,30 @@ def test_glm_intl_api_client_accepts_nested_auth_and_chat_payloads() -> None:
     assert client.chat_completion(message="hello glm-intl", model="GLM-5.1") == "答案"
 
 
+def test_glm_intl_stream_wraps_unexpected_attribute_error_as_runtime_error(monkeypatch) -> None:
+    credentials = ProviderCredentialRecord(
+        provider="glm-intl",
+        kind="browser_session",
+        cookie="token=cookie-token",
+        headers={},
+        user_agent="Mozilla/5.0",
+        metadata={},
+        status="valid",
+    )
+    client = GLMIntlApiClient(
+        credentials,
+        client=httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={}))),
+    )
+
+    def blow_up(*, message: str, model: str):
+        raise AttributeError("simulated payload mismatch")
+
+    monkeypatch.setattr(client, "_completion_request_parts", blow_up)
+
+    with pytest.raises(RuntimeError, match="GLM Intl initialization payload shape changed"):
+        list(client.iter_marked_chat_completion_text(message="hello glm-intl", model="GLM-5.1"))
+
+
 def test_glm_adapter_streams_using_client_when_available() -> None:
     credentials = ProviderCredentialRecord(
         provider="glm-cn",

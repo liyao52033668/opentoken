@@ -861,10 +861,17 @@ class GLMIntlApiClient(GLMApiClient):
         message: str,
         model: str,
     ) -> Iterator[str]:
-        _site_model, url_params, headers, completion_payload = self._completion_request_parts(
-            message=message,
-            model=model,
-        )
+        # 生成器惰性执行 —— 初始化阶段的 AttributeError 必须在这里兜住，
+        # 否则 classify_stream_error 只会回 generic class 名，客户端无法定位阶段。
+        try:
+            _site_model, url_params, headers, completion_payload = self._completion_request_parts(
+                message=message,
+                model=model,
+            )
+        except AttributeError as exc:
+            raise RuntimeError(
+                f"GLM Intl initialization payload shape changed: {exc}"
+            ) from exc
         projector = _GLMIntlMarkedStreamProjector()
         saw_any_piece = False
         with self._client.stream(
