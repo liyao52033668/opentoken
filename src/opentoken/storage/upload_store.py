@@ -6,7 +6,7 @@ from pathlib import Path
 from time import time
 from uuid import uuid4
 
-from opentoken.storage.factory import get_storage_backend
+from opentoken.storage.factory import get_storage_backend_for_path
 
 
 _DEFAULT_STORE: dict[str, object] = {
@@ -16,6 +16,10 @@ _DEFAULT_STORE: dict[str, object] = {
 
 # 元数据存储键
 _METADATA_KEY = "uploads.json"
+
+
+def _backend_for_state_dir(state_dir: Path):
+    return get_storage_backend_for_path(state_dir)
 
 
 class UploadSizeExceededError(Exception):
@@ -46,7 +50,7 @@ def create_upload(
         "parts": [],
     }
 
-    backend = get_storage_backend()
+    backend = _backend_for_state_dir(state_dir)
 
     with backend.acquire_lock(_METADATA_KEY):
         store = _load_store(backend)
@@ -62,7 +66,7 @@ def create_upload(
 
 def get_upload(state_dir: Path, upload_id: str) -> dict[str, object] | None:
     """获取上传会话。"""
-    backend = get_storage_backend()
+    backend = _backend_for_state_dir(state_dir)
     uploads = _load_store(backend).get("uploads", {})
     if not isinstance(uploads, dict):
         return None
@@ -80,7 +84,7 @@ def add_upload_part(
     content_type: str | None = None,
 ) -> dict[str, object] | None:
     """添加上传分片。"""
-    backend = get_storage_backend()
+    backend = _backend_for_state_dir(state_dir)
 
     with backend.acquire_lock(_METADATA_KEY):
         store = _load_store(backend)
@@ -133,7 +137,7 @@ def complete_upload(
     part_ids: list[str] | None = None,
 ) -> tuple[dict[str, object], bytes] | None:
     """完成上传。"""
-    backend = get_storage_backend()
+    backend = _backend_for_state_dir(state_dir)
 
     with backend.acquire_lock(_METADATA_KEY):
         store = _load_store(backend)
@@ -197,7 +201,7 @@ def complete_upload(
 
 def cancel_upload(state_dir: Path, upload_id: str) -> dict[str, object] | None:
     """取消上传。"""
-    backend = get_storage_backend()
+    backend = _backend_for_state_dir(state_dir)
 
     with backend.acquire_lock(_METADATA_KEY):
         store = _load_store(backend)

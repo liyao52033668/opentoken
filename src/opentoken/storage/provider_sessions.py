@@ -9,10 +9,7 @@ import json
 from pathlib import Path
 
 from opentoken.models.provider_credentials import ProviderCredentialRecord
-from opentoken.storage.config_store import (
-    read_provider_sessions,
-    write_provider_sessions,
-)
+from opentoken.storage.factory import get_storage_backend_for_path
 
 
 # Cap the session store. The key embeds a credential fingerprint, so each
@@ -23,6 +20,10 @@ from opentoken.storage.config_store import (
 # means a fresh conversation next time. (response_store is capped for the same
 # reason.)
 _MAX_SESSION_ENTRIES = 256
+
+
+def _backend_for_state_dir(state_dir: Path):
+    return get_storage_backend_for_path(state_dir)
 
 
 def load_provider_session(
@@ -41,7 +42,8 @@ def load_provider_session(
     Returns:
         会话状态字典
     """
-    store = read_provider_sessions() or {}
+    backend = _backend_for_state_dir(state_dir)
+    store = backend.read_json("provider-sessions.json") or {}
     return dict(store.get(_session_key(provider, credentials), {}))
 
 
@@ -63,20 +65,23 @@ def save_provider_session(
     Returns:
         保存路径（虚拟路径，用于向后兼容）
     """
-    store = read_provider_sessions() or {}
+    backend = _backend_for_state_dir(state_dir)
     key = _session_key(provider, credentials)
 
-    # Re-insert at the end so this key counts as most-recent (dicts preserve
-    # insertion order); then evict the oldest entries beyond the cap.
-    store.pop(key, None)
-    store[key] = dict(state)
+    with backend.acquire_lock("provider-sessions.json"):
+        store = backend.read_json("provider-sessions.json") or {}
 
-    if len(store) > _MAX_SESSION_ENTRIES:
-        for stale_key in list(store.keys())[: len(store) - _MAX_SESSION_ENTRIES]:
-            store.pop(stale_key, None)
+        # Re-insert at the end so this key counts as most-recent (dicts preserve
+        # insertion order); then evict the oldest entries beyond the cap.
+        store.pop(key, None)
+        store[key] = dict(state)
 
-    write_provider_sessions(store)
-    return Path("provider-sessions.json")
+        if len(store) > _MAX_SESSION_ENTRIES:
+            for stale_key in list(store.keys())[: len(store) - _MAX_SESSION_ENTRIES]:
+                store.pop(stale_key, None)
+
+        backend.write_json("provider-sessions.json", store)
+    return _resolve_session_store_path(state_dir)
 
 
 def credential_fingerprint(credentials: ProviderCredentialRecord) -> str:
@@ -109,4 +114,14 @@ def _resolve_session_store_path(state_dir: Path) -> Path:
 
 def _load_store(state_dir: Path) -> dict[str, object]:
     """加载会话存储（测试用）。"""
-    return read_provider_sessions() or {}
+    resolved = state_dir.expanduser().resolve()
+    if resolved.name == "provider-sessions.json":
+        if not resolved.exists():
+            return {}
+        try:
+            payload = json.loads(resolved.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+    backend = _backend_for_state_dir(state_dir)
+    return backend.read_json("provider-sessions.json") or {}

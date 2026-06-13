@@ -7,7 +7,7 @@ from pathlib import Path
 from time import time
 from uuid import uuid4
 
-from opentoken.storage.factory import get_storage_backend
+from opentoken.storage.factory import get_storage_backend_for_path
 
 
 _SAFE_FILE_ID = re.compile(r"^file-[A-Za-z0-9]{16,}$")
@@ -19,6 +19,10 @@ _DEFAULT_STORE: dict[str, object] = {
 
 # 元数据存储键
 _METADATA_KEY = "files.json"
+
+
+def _backend_for_state_dir(state_dir: Path):
+    return get_storage_backend_for_path(state_dir)
 
 
 def create_file(
@@ -53,7 +57,7 @@ def create_file(
         "mime_type": mime_type or "application/octet-stream",
     }
 
-    backend = get_storage_backend()
+    backend = _backend_for_state_dir(state_dir)
     blob_key = _resolve_blob_key(file_id)
 
     with backend.acquire_lock(_METADATA_KEY):
@@ -74,7 +78,7 @@ def create_file(
 
 def list_files(state_dir: Path) -> list[dict[str, object]]:
     """列出所有文件。"""
-    backend = get_storage_backend()
+    backend = _backend_for_state_dir(state_dir)
     store = _load_store(backend)
     files = store.get("files", {})
     if not isinstance(files, dict):
@@ -89,7 +93,7 @@ def list_files(state_dir: Path) -> list[dict[str, object]]:
 
 def get_file(state_dir: Path, file_id: str) -> dict[str, object] | None:
     """获取文件元数据。"""
-    backend = get_storage_backend()
+    backend = _backend_for_state_dir(state_dir)
     store = _load_store(backend)
     files = store.get("files", {})
     if not isinstance(files, dict):
@@ -106,7 +110,7 @@ def read_file_content(state_dir: Path, file_id: str) -> tuple[dict[str, object],
     if metadata is None:
         return None
 
-    backend = get_storage_backend()
+    backend = _backend_for_state_dir(state_dir)
     blob_key = _resolve_blob_key(file_id)
     content = backend.read_bytes(blob_key)
     if content is None:
@@ -120,7 +124,7 @@ def delete_file(state_dir: Path, file_id: str) -> bool:
     if not _SAFE_FILE_ID.match(file_id):
         return False
 
-    backend = get_storage_backend()
+    backend = _backend_for_state_dir(state_dir)
 
     with backend.acquire_lock(_METADATA_KEY):
         store = _load_store(backend)

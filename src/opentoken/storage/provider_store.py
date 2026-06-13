@@ -5,24 +5,65 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from pathlib import Path
 
 from pydantic import ValidationError
 
 from opentoken.models.provider_credentials import ProviderCredentialRecord
-from opentoken.storage.config_store import (
-    delete_provider_credential,
-    list_provider_credentials as _list_provider_credentials_from_config,
-    read_provider_credential,
-    write_provider_credential,
-)
+from opentoken.storage._atomic import write_json_atomic
 from opentoken.storage.auth_profiles import (
     delete_auth_profile_record,
     list_auth_profile_records,
     load_auth_profile_record,
     save_auth_profile_record,
 )
+
+
+def _legacy_provider_path(providers_dir: Path, provider: str) -> Path:
+    return providers_dir.expanduser().resolve() / f"{provider}.json"
+
+
+def _write_legacy_provider_credential(providers_dir: Path, provider: str, data: dict) -> Path:
+    path = _legacy_provider_path(providers_dir, provider)
+    write_json_atomic(path, data, sensitive=True)
+    return path
+
+
+def _read_legacy_provider_credential(providers_dir: Path, provider: str) -> dict | None:
+    path = _legacy_provider_path(providers_dir, provider)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _list_legacy_provider_credentials(providers_dir: Path) -> list[tuple[str, dict]]:
+    base_dir = providers_dir.expanduser().resolve()
+    if not base_dir.exists():
+        return []
+    result: list[tuple[str, dict]] = []
+    for path in sorted(base_dir.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict):
+            result.append((path.stem, payload))
+    return result
+
+
+def _delete_legacy_provider_credential(providers_dir: Path, provider: str) -> bool:
+    path = _legacy_provider_path(providers_dir, provider)
+    try:
+        path.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
 
 
 def save_provider_credentials(
@@ -57,9 +98,7 @@ def save_provider_credentials(
 
     # 同时保存到单独的 provider 文件（用于向后兼容）
     provider_data = record.model_dump()
-    write_provider_credential(record.provider, provider_data)
-
-    return Path(f"providers/{record.provider}.json")
+    return _write_legacy_provider_credential(state_dir, record.provider, provider_data)
 
 
 def load_provider_credentials(state_dir: Path, provider: str) -> ProviderCredentialRecord | None:
@@ -80,7 +119,7 @@ def load_provider_credentials(state_dir: Path, provider: str) -> ProviderCredent
         return auth_record
 
     # 回退到单独的 provider 文件
-    provider_data = read_provider_credential(provider)
+    provider_data = _read_legacy_provider_credential(state_dir, provider)
     if provider_data is None:
         return None
 
@@ -102,7 +141,7 @@ def list_provider_credentials(state_dir: Path) -> list[ProviderCredentialRecord]
     }
 
     # 补充从单独的 provider 文件读取的凭证
-    for _, provider_data in _list_provider_credentials_from_config():
+    for _, provider_data in _list_legacy_provider_credentials(state_dir):
         if not isinstance(provider_data, dict):
             continue
         record = _load_record_from_dict(provider_data)
@@ -129,7 +168,7 @@ def delete_provider_credentials(state_dir: Path, provider: str) -> bool:
         deleted = True
 
     # 从单独的 provider 文件删除
-    if delete_provider_credential(provider):
+    if _delete_legacy_provider_credential(state_dir, provider):
         deleted = True
 
     return deleted

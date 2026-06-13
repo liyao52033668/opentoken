@@ -1,7 +1,16 @@
+import re
+
 from typer.testing import CliRunner
 
 from opentoken.cli.app import app
 from opentoken.storage.provider_store import load_provider_credentials
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain_stderr(result) -> str:
+    return _ANSI_RE.sub("", result.stderr)
 
 
 def test_login_manual_saves_provider_credentials(monkeypatch, tmp_path) -> None:
@@ -76,7 +85,7 @@ def test_login_rejects_api_key_for_provider_without_api_key_support(monkeypatch,
     )
 
     assert result.exit_code != 0
-    assert "does not support --api-key" in result.stderr
+    assert "does not support --api-key" in _plain_stderr(result)
 
 
 def test_login_rejects_cookie_auth_for_api_key_only_provider(monkeypatch, tmp_path) -> None:
@@ -94,7 +103,7 @@ def test_login_rejects_cookie_auth_for_api_key_only_provider(monkeypatch, tmp_pa
     )
 
     assert result.exit_code != 0
-    assert "requires --api-key" in result.stderr
+    assert "requires --api-key" in _plain_stderr(result)
 
 
 def test_login_rejects_user_agent_without_real_manual_credentials(monkeypatch, tmp_path) -> None:
@@ -112,7 +121,7 @@ def test_login_rejects_user_agent_without_real_manual_credentials(monkeypatch, t
     )
 
     assert result.exit_code != 0
-    assert "Provide --cookie or --header" in result.stderr
+    assert "Provide --cookie or --header" in _plain_stderr(result)
 
 
 def test_login_accepts_multi_token_provider_alias(monkeypatch, tmp_path) -> None:
@@ -152,4 +161,4 @@ def test_login_manual_rejects_malformed_header(monkeypatch, tmp_path) -> None:
     )
 
     assert result.exit_code != 0
-    assert "Invalid header format" in result.stderr
+    assert "Invalid header format" in _plain_stderr(result)

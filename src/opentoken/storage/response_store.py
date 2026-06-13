@@ -9,7 +9,7 @@ import time
 from collections import OrderedDict
 from pathlib import Path
 
-from opentoken.storage.config_store import read_responses, write_responses
+from opentoken.storage.factory import get_storage_backend_for_path
 
 
 _DEFAULT_STORE: dict[str, object] = {
@@ -24,6 +24,10 @@ _DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60
 _DEFAULT_MAX_ENTRIES = 1024
 
 
+def _backend_for_state_dir(state_dir: Path):
+    return get_storage_backend_for_path(state_dir)
+
+
 def load_response_messages(state_dir: Path, response_id: str) -> list[dict[str, object]] | None:
     """加载响应消息。
 
@@ -34,7 +38,8 @@ def load_response_messages(state_dir: Path, response_id: str) -> list[dict[str, 
     Returns:
         消息列表或 None
     """
-    store = read_responses()
+    backend = _backend_for_state_dir(state_dir)
+    store = backend.read_json("responses.json")
     if store is None:
         store = _DEFAULT_STORE
 
@@ -72,7 +77,8 @@ def save_response_messages(
         ttl_seconds: TTL 秒数
         max_entries: 最大条目数
     """
-    store = read_responses()
+    backend = _backend_for_state_dir(state_dir)
+    store = backend.read_json("responses.json")
     if store is None:
         store = copy.deepcopy(_DEFAULT_STORE)
 
@@ -108,7 +114,7 @@ def save_response_messages(
         responses.popitem(last=False)
 
     store["responses"] = dict(responses)
-    write_responses(store)
+    backend.write_json("responses.json", store)
 
 
 def _resolve_response_store_path(state_dir: Path) -> Path:

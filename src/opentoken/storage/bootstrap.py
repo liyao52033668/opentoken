@@ -27,6 +27,12 @@ def initialize_state_dir(state_dir: Path) -> Path:
     Returns:
         状态目录路径
     """
+    state_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(state_dir, 0o700)
+    except OSError:
+        pass
+
     # 确保存储后端目录结构存在
     ensure_directories()
 

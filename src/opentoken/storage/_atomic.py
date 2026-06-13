@@ -15,6 +15,7 @@ import json
 import os
 from collections.abc import Iterator
 from pathlib import Path
+from uuid import uuid4
 
 try:  # pragma: no cover - posix-only fcntl exists on macOS and Linux
     import fcntl
@@ -52,7 +53,7 @@ def file_lock(path: Path) -> Iterator[None]:
 def write_json_atomic(path: Path, payload: object, *, sensitive: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     serialized = json.dumps(payload, ensure_ascii=False, indent=2)
-    tmp_path = path.with_name(path.name + ".tmp")
+    tmp_path = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
     with tmp_path.open("w", encoding="utf-8") as fh:
         fh.write(serialized)
         fh.flush()

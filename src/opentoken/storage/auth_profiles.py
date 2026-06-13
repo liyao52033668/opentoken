@@ -8,10 +8,7 @@ import copy
 from pathlib import Path
 
 from opentoken.models.provider_credentials import ProviderCredentialRecord
-from opentoken.storage.config_store import (
-    read_auth_profiles,
-    write_auth_profiles,
-)
+from opentoken.storage.factory import get_storage_backend_for_path
 
 _DEFAULT_STORE: dict[str, object] = {
     "version": 1,
@@ -29,7 +26,14 @@ def resolve_auth_profiles_key() -> str:
 
 def resolve_auth_profiles_path(providers_dir: Path) -> Path:
     """获取 auth-profiles 文件路径。"""
-    return providers_dir / "auth-profiles.json"
+    providers_path = providers_dir.expanduser().resolve()
+    if providers_path.name == "providers":
+        return providers_path.parent / "auth-profiles.json"
+    return providers_path / "auth-profiles.json"
+
+
+def _backend_for_providers_dir(providers_dir: Path):
+    return get_storage_backend_for_path(resolve_auth_profiles_path(providers_dir).parent)
 
 
 def load_auth_profile_record(providers_dir: Path, provider: str) -> ProviderCredentialRecord | None:
@@ -42,7 +46,8 @@ def load_auth_profile_record(providers_dir: Path, provider: str) -> ProviderCred
     Returns:
         ProviderCredentialRecord 或 None
     """
-    store = read_auth_profiles()
+    backend = _backend_for_providers_dir(providers_dir)
+    store = backend.read_json(resolve_auth_profiles_key())
     if store is None:
         store = copy.deepcopy(_DEFAULT_STORE)
 
@@ -78,7 +83,8 @@ def list_auth_profile_records(providers_dir: Path) -> list[ProviderCredentialRec
     Returns:
         ProviderCredentialRecord 列表
     """
-    store = read_auth_profiles()
+    backend = _backend_for_providers_dir(providers_dir)
+    store = backend.read_json(resolve_auth_profiles_key())
     if store is None:
         store = copy.deepcopy(_DEFAULT_STORE)
 
@@ -107,22 +113,24 @@ def save_auth_profile_record(providers_dir: Path, record: ProviderCredentialReco
     Returns:
         保存路径（虚拟路径，用于向后兼容）
     """
-    store = read_auth_profiles()
-    if store is None:
-        store = copy.deepcopy(_DEFAULT_STORE)
+    backend = _backend_for_providers_dir(providers_dir)
+    with backend.acquire_lock(resolve_auth_profiles_key()):
+        store = backend.read_json(resolve_auth_profiles_key())
+        if store is None:
+            store = copy.deepcopy(_DEFAULT_STORE)
 
-    profiles = store.setdefault("profiles", {})
-    if not isinstance(profiles, dict):
-        profiles = {}
-        store["profiles"] = profiles
+        profiles = store.setdefault("profiles", {})
+        if not isinstance(profiles, dict):
+            profiles = {}
+            store["profiles"] = profiles
 
-    profiles[f"{record.provider}:default"] = {
-        "type": "token",
-        "provider": record.provider,
-        "token": record.model_dump_json(),
-    }
-    write_auth_profiles(store)
-    return Path("auth-profiles.json")
+        profiles[f"{record.provider}:default"] = {
+            "type": "token",
+            "provider": record.provider,
+            "token": record.model_dump_json(),
+        }
+        backend.write_json(resolve_auth_profiles_key(), store)
+    return resolve_auth_profiles_path(providers_dir)
 
 
 def delete_auth_profile_record(providers_dir: Path, provider: str) -> bool:
@@ -135,7 +143,8 @@ def delete_auth_profile_record(providers_dir: Path, provider: str) -> bool:
     Returns:
         是否删除成功
     """
-    store = read_auth_profiles()
+    backend = _backend_for_providers_dir(providers_dir)
+    store = backend.read_json(resolve_auth_profiles_key())
     if store is None:
         return False
 
@@ -155,7 +164,7 @@ def delete_auth_profile_record(providers_dir: Path, provider: str) -> bool:
     for profile_id in profile_ids:
         profiles.pop(profile_id, None)
 
-    write_auth_profiles(store)
+    backend.write_json(resolve_auth_profiles_key(), store)
     return True
 
 
@@ -184,7 +193,8 @@ def _decode_profile_record(raw: object) -> ProviderCredentialRecord | None:
 
 def _load_store(providers_dir: Path) -> dict[str, object]:
     """加载 auth-profiles 存储（测试用）。"""
-    store = read_auth_profiles()
+    backend = _backend_for_providers_dir(providers_dir)
+    store = backend.read_json(resolve_auth_profiles_key())
     if store is None:
         return copy.deepcopy(_DEFAULT_STORE)
     return store
@@ -192,4 +202,5 @@ def _load_store(providers_dir: Path) -> dict[str, object]:
 
 def _save_store(providers_dir: Path, store: dict[str, object]) -> None:
     """保存 auth-profiles 存储（测试用）。"""
-    write_auth_profiles(store)
+    backend = _backend_for_providers_dir(providers_dir)
+    backend.write_json(resolve_auth_profiles_key(), store)

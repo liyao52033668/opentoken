@@ -13,6 +13,13 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 
+_SENSITIVE_JSON_KEYS = {
+    "auth-profiles.json",
+    "provider-sessions.json",
+    "responses.json",
+}
+
+
 class LocalStorage:
     """本地文件系统存储后端。
 
@@ -51,7 +58,11 @@ class LocalStorage:
     def write_json(self, key: str, data: dict) -> None:
         path = self._resolve_path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
-        write_json_atomic(path, data)
+        write_json_atomic(
+            path,
+            data,
+            sensitive=key in _SENSITIVE_JSON_KEYS or key.startswith("providers/"),
+        )
 
     def read_bytes(self, key: str) -> bytes | None:
         path = self._resolve_path(key)

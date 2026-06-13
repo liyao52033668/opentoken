@@ -147,8 +147,8 @@ def test_uploads_complete_when_part_blob_missing_marks_cancelled(monkeypatch, tm
     part_id = part_response.json()["id"]
 
     # 通过 StorageBackend 删除 part blob 模拟磁盘清理
-    from opentoken.storage.factory import get_storage_backend
-    backend = get_storage_backend()
+    from opentoken.storage.factory import get_storage_backend_for_path
+    backend = get_storage_backend_for_path(tmp_path)
     blob_key = f"uploads/{upload_id}/{part_id}.bin"
     backend.delete(blob_key)
 

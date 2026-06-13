@@ -901,6 +901,8 @@ class GLMIntlApiClient(GLMApiClient):
 
     def iter_chat_completion_text(self, *, message: str, model: str) -> Iterator[str]:
         inside_think = False
+        saw_answer_piece = False
+        think_pieces: list[str] = []
         for piece in self.iter_marked_chat_completion_text(message=message, model=model):
             if piece == "<think>":
                 inside_think = True
@@ -909,9 +911,16 @@ class GLMIntlApiClient(GLMApiClient):
                 inside_think = False
                 continue
             if inside_think:
+                if piece:
+                    think_pieces.append(piece)
                 continue
             if piece:
+                saw_answer_piece = True
                 yield piece
+        if not saw_answer_piece:
+            for piece in think_pieces:
+                if piece:
+                    yield piece
 
     def chat_completion(self, *, message: str, model: str) -> str:
         content = "".join(self.iter_chat_completion_text(message=message, model=model)).strip()

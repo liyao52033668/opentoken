@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 _BACKEND: StorageBackend | None = None
 
 
+def _normalize_local_storage_base_dir(base_dir: Path) -> Path:
+    resolved = base_dir.expanduser().resolve()
+    if resolved.name == "providers":
+        return resolved.parent
+    return resolved
+
+
 def get_storage_backend() -> StorageBackend:
     """获取存储后端实例（单例）。
 
@@ -57,6 +64,14 @@ def get_storage_backend() -> StorageBackend:
         )
 
     return _BACKEND
+
+
+def get_storage_backend_for_path(base_dir: Path) -> StorageBackend:
+    """按调用方给定的本地目录解析存储后端。"""
+    backend_type = os.getenv("OPENTOKEN_STORAGE_BACKEND", "local").lower()
+    if backend_type == "local":
+        return LocalStorage(_normalize_local_storage_base_dir(base_dir))
+    return get_storage_backend()
 
 
 def reset_storage_backend() -> None:
