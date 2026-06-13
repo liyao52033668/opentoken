@@ -57,7 +57,7 @@ _GLM_ASSISTANT_ID_MAP = {
     "glm-4-zero": "676411c38945bbc58a905d31",
 }
 _GLM_INTL_SIGNATURE_SECRET = "key-@@@@)))()((9))-xxxx&&&%%%%%"
-_GLM_INTL_FRONTEND_VERSION_FALLBACK = "prod-fe-1.1.12"
+_GLM_INTL_FRONTEND_VERSION_FALLBACK = "prod-fe-1.2.0"
 _GLM_INTL_FRONTEND_VERSION_PATTERN = re.compile(r"/z-ai/frontend/([^/]+)/_app/immutable/")
 _GLM_INTL_MODEL_CANDIDATES = {
     "glm-4-plus": ("GLM-5-Turbo", "glm-4.7", "glm-5", "GLM-5.1"),
@@ -570,8 +570,6 @@ class GLMIntlApiClient(GLMApiClient):
         return self._intl_auth_context
 
     def _fetch_frontend_version(self) -> str:
-        if self._frontend_version:
-            return self._frontend_version
         response = self._client.get(
             f"{self._base_url}/",
             headers={
@@ -581,8 +579,9 @@ class GLMIntlApiClient(GLMApiClient):
             },
         )
         response.raise_for_status()
-        self._frontend_version = _extract_glm_intl_frontend_version(response.text)
-        return self._frontend_version
+        version = _extract_glm_intl_frontend_version(response.text)
+        self._frontend_version = version
+        return version
 
     def _fetch_site_model_ids(self, *, token: str) -> list[str]:
         if self._site_model_ids is not None:
