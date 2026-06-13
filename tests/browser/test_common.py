@@ -279,7 +279,12 @@ def test_launch_persistent_context_fast_fails_when_no_camoufox_and_no_playwright
     try:
         session.launch_persistent_context(tmp_path / "doubao", headless=False)
     except RuntimeError as exc:
-        assert "camoufox" in str(exc).lower()
-        assert "playwright fallback" in str(exc).lower()
+        message = str(exc).lower()
+        assert "camoufox" in message
+        # The message must explain that no fallback browser (system Chrome or a
+        # Playwright-bundled one) is available — wording changed when the
+        # fallback path learned about system Chrome, so match the current text
+        # rather than the old literal "playwright fallback".
+        assert "fallback" in message and "playwright" in message
     else:
         raise AssertionError("Expected RuntimeError")

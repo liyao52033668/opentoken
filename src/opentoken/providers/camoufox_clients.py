@@ -40,6 +40,7 @@ from opentoken.providers.glm import GLMApiClient, GLMIntlApiClient
 from opentoken.providers.glm import _extract_glm_text_candidates, _glm_meta_data_for_model
 from opentoken.providers.qwen import (
     QwenApiClient,
+    QwenWafBlockedError,
     _extract_qwen_intl_phased_segments,
     _qwen_feature_config_for_model,
 )
@@ -337,13 +338,31 @@ class CamoufoxProviderClient:
                   if (!res.ok) {
                     return { ok: false, status: res.status, error: await res.text() };
                   }
+                  // The WAF returns 200 with an HTML risk page (aliyun_waf JS
+                  // challenge) instead of JSON; res.json() would throw inside the
+                  // page and surface as a Playwright error → opaque 500. Detect
+                  // it here and return a structured waf block instead.
+                  const ctype = res.headers.get("content-type") || "";
+                  if (!ctype.toLowerCase().includes("application/json")) {
+                    return { ok: false, status: res.status, waf: true };
+                  }
                   const data = await res.json();
                   return { ok: true, chatId: data?.data?.id ?? data?.chat_id ?? data?.id ?? data?.chatId };
                 }
                 """,
                 {"baseUrl": _QWEN_INTL_BASE_URL},
             )
-            if not created.get("ok") or not created.get("chatId"):
+            if not created.get("ok"):
+                if created.get("waf"):
+                    raise QwenWafBlockedError(
+                        "Qwen Intl API blocked by WAF risk page from the browser "
+                        "context (non-JSON response); the saved session no longer "
+                        "passes the WAF challenge. Run `opentoken login qwen` again."
+                    )
+                raise RuntimeError(
+                    f"Qwen International chat creation failed: {created.get('status')} {created.get('error', '')}"
+                )
+            if not created.get("chatId"):
                 raise RuntimeError(
                     f"Qwen International chat creation failed: {created.get('status')} {created.get('error', '')}"
                 )

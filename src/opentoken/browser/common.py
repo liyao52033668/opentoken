@@ -300,16 +300,36 @@ def _discover_system_chrome_executable() -> str | None:
     return None
 
 
+def _is_wsl() -> bool:
+    """Detect Windows Subsystem for Linux. Under WSL, calling the Windows-side
+    Chrome (under /mnt/c) from a Linux Playwright process fails: Playwright's
+    stdio pipe to the child never connects across the interop boundary, so the
+    browser appears to launch and immediately close."""
+    if not sys.platform.startswith('linux'):
+        return False
+    try:
+        with open('/proc/sys/kernel/osrelease', encoding='utf-8') as handle:
+            osrelease = handle.read().lower()
+    except OSError:
+        return False
+    return 'microsoft' in osrelease or 'wsl' in osrelease
+
+
 def _resolve_playwright_fallback_browser_name() -> str | None:
     try:
         sync_playwright = _import_playwright_sync_api()
     except Exception:
         return None
 
-    # Prefer system-installed Chrome (`channel='chrome'`) so the user gets
-    # their real browser profile + extensions instead of a bare Playwright
-    # chromium that triggers more bot checks.
-    if _discover_system_chrome_executable() is not None:
+    # Prefer system-installed Chrome via Playwright's `channel='chrome'` so the
+    # user gets their real browser instead of a bare Playwright-bundled
+    # chromium. Skip the channel on Windows (Chrome's single-instance lock) and
+    # under WSL (Windows-side Chrome can't be driven from a Linux Playwright).
+    if (
+        _discover_system_chrome_executable() is not None
+        and not sys.platform.startswith('win')
+        and not _is_wsl()
+    ):
         return 'chrome'
 
     try:

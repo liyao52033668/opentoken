@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenToken Console</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --panel2:#1f2430; --border:#2a3140;
+    --text:#e6e9ef; --muted:#8b93a7; --accent:#4f8cff; --ok:#3fb950; --warn:#d29922; --err:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    background:var(--bg); color:var(--text); }
+  .wrap { max-width:980px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:24px 0 12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .muted { color:var(--muted); }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  input,select,textarea { background:var(--panel2); border:1px solid var(--border); color:var(--text);
+    border-radius:8px; padding:8px 10px; font:inherit; }
+  input[type=text],input[type=password],select,textarea { width:100%; }
+  textarea { resize:vertical; min-height:64px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:8px 14px; font:inherit; cursor:pointer; }
+  button.secondary { background:var(--panel2); border:1px solid var(--border); color:var(--text); }
+  button.danger { background:var(--err); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  table { width:100%; border-collapse:collapse; }
+  th,td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--border); }
+  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
+  .badge.valid { background:rgba(63,185,80,.15); color:var(--ok); }
+  .badge.not_logged_in { background:rgba(139,147,167,.15); color:var(--muted); }
+  .badge.failed,.badge.expired,.badge.invalid { background:rgba(248,81,73,.15); color:var(--err); }
+  .login-wrap { max-width:340px; margin:64px auto; }
+  .error { color:var(--err); }
+  code.mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--panel2);
+    padding:2px 6px; border-radius:5px; }
+  .chat-out { white-space:pre-wrap; background:var(--panel2); border:1px solid var(--border);
+    border-radius:8px; padding:12px; min-height:48px; }
+  .hidden { display:none !important; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:640px){ .grid2{ grid-template-columns:1fr; } }
+  label.field { display:block; margin-bottom:8px; }
+  label.field > span { display:block; color:var(--muted); margin-bottom:4px; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+
+  <div id="v-disabled" class="login-wrap hidden">
+    <h1>OpenToken Console</h1>
+    <p class="muted">控制台未启用。请设置环境变量 <code class="mono">OPENTOKEN_ADMIN_PASSWORD</code> 后重启网关。</p>
+  </div>
+
+  <div id="v-login" class="login-wrap hidden">
+    <h1>OpenToken Console</h1>
+    <p class="muted">请输入管理密码登录。</p>
+    <div id="login-error" class="error" style="margin:8px 0"></div>
+    <form id="login-form">
+      <label class="field"><span>密码</span>
+        <input type="password" id="login-password" autocomplete="current-password" autofocus>
+      </label>
+      <button type="submit" style="width:100%">登录</button>
+    </form>
+  </div>
+
+  <div id="v-main" class="hidden">
+    <div class="row" style="justify-content:space-between; margin-bottom:8px">
+      <h1 style="margin:0">OpenToken Console</h1>
+      <button class="secondary" id="btn-logout">退出登录</button>
+    </div>
+    <p class="muted" id="keyless-warn" style="display:none;color:var(--warn)">
+      注意：网关当前处于 keyless 模式，<code class="mono">/v1/*</code> 无需 API key 即可访问。
+    </p>
+
+    <h2>API Key</h2>
+    <div class="card">
+      <div class="row">
+        <code class="mono" id="apikey-value" style="flex:1; word-break:break-all">—</code>
+        <button class="secondary" id="btn-copy-key">复制</button>
+        <button class="secondary" id="btn-toggle-key">显示</button>
+        <button id="btn-rotate-key">重新生成</button>
+        <button class="danger" id="btn-clear-key">清空</button>
+      </div>
+    </div>
+
+    <h2>Providers</h2>
+    <div class="card" style="padding:0; overflow:hidden">
+      <table>
+        <thead><tr><th>Provider</th><th>状态</th><th>登录方式</th><th style="text-align:right">操作</th></tr></thead>
+        <tbody id="providers-body"><tr><td colspan="4" class="muted">加载中…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div id="provider-login" class="card hidden">
+      <h2 style="margin-top:0">登录 <span id="pl-title"></span></h2>
+      <div id="pl-error" class="error" style="margin-bottom:8px"></div>
+      <div class="grid2">
+        <label class="field" id="pl-cookie-wrap"><span>Cookie</span>
+          <textarea id="pl-cookie" placeholder="name=value; name2=value2"></textarea></label>
+        <label class="field" id="pl-apikey-wrap"><span>API Key</span>
+          <input type="text" id="pl-apikey"></label>
+      </div>
+      <label class="field"><span>Token（自动作为 Authorization: Bearer 发送）</span>
+        <input type="text" id="pl-token" placeholder="只填 token 值即可，无需手动写 authorization"></label>
+      <label class="field"><span>User-Agent<span id="pl-ua-hint" class="muted">（可选）</span></span>
+        <input type="text" id="pl-ua" placeholder="如：Mozilla/5.0 ..."></label>
+      <div class="row" style="justify-content:flex-end">
+        <button class="secondary" id="pl-cancel">取消</button>
+        <button id="pl-save">保存</button>
+      </div>
+    </div>
+
+    <h2>测试对话</h2>
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <select id="test-model" style="width:auto; flex:1"></select>
+        <button id="btn-refresh-models" class="secondary">刷新模型</button>
+      </div>
+      <label class="field"><span>消息</span>
+        <textarea id="test-message" placeholder="输入测试消息，例如：你好"></textarea></label>
+      <div class="row" style="justify-content:flex-end; margin-bottom:12px">
+        <button id="btn-send-test">发送</button>
+      </div>
+      <div class="chat-out muted" id="test-output">回复将显示在这里。</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = "/console/api";
+const $ = (id) => document.getElementById(id);
+let _keyShown = false, _currentKey = "";
+
+function show(viewId){
+  ["v-disabled","v-login","v-main"].forEach(v => $(v).classList.add("hidden"));
+  $(viewId).classList.remove("hidden");
+}
+async function api(path, opts={}){
+  const res = await fetch(API + path, {headers:{"Content-Type":"application/json"}, ...opts});
+  const text = await res.text();
+  let data; try { data = text ? JSON.parse(text) : {}; } catch { data = {detail:text}; }
+  if (!res.ok) throw {status:res.status, message:(data.detail || (data.error&&data.error.message) || ("HTTP "+res.status))};
+  return data;
+}
+
+async function bootstrap(){
+  try {
+    const s = await api("/status");
+    if (!s.enabled) { show("v-disabled"); return; }
+    if (s.authenticated) { enterMain(); } else { show("v-login"); }
+  } catch {
+    show("v-login");
+  }
+}
+
+$("login-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("login-error").textContent = "";
+  const pw = $("login-password").value;
+  try {
+    await api("/login", {method:"POST", body: JSON.stringify({password: pw})});
+    enterMain();
+  } catch (err) {
+    $("login-error").textContent = "密码错误或控制台不可用。";
+  }
+});
+$("btn-logout").addEventListener("click", async () => {
+  try { await api("/logout", {method:"POST"}); } catch {}
+  show("v-login");
+  $("login-password").value = "";
+});
+
+async function enterMain(){
+  show("v-main");
+  await Promise.all([loadApikey(), loadProviders(), loadModels()]);
+}
+
+async function loadApikey(){
+  try {
+    const d = await api("/apikey");
+    _currentKey = d.api_key || "";
+    renderKey();
+    $("keyless-warn").style.display = d.has_key ? "none" : "block";
+  } catch (err) { $("apikey-value").textContent = "加载失败"; }
+}
+function renderKey(){
+  const v = _currentKey || "(空 — keyless 模式)";
+  $("apikey-value").textContent = _keyShown ? v : (_currentKey ? "•".repeat(Math.min(_currentKey.length,32)) : v);
+  $("btn-toggle-key").textContent = _keyShown ? "隐藏" : "显示";
+  $("btn-copy-key").disabled = !_currentKey;
+}
+$("btn-toggle-key").addEventListener("click", () => { _keyShown = !_keyShown; renderKey(); });
+$("btn-copy-key").addEventListener("click", async () => {
+  if (!_currentKey) return;
+  // Copy the REAL key, not the masked dots. Prefer the async Clipboard API
+  // (secure contexts / localhost); fall back to a hidden textarea + execCommand
+  // for plain-http remote deployments where navigator.clipboard is undefined.
+  let ok = false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(_currentKey);
+      ok = true;
+    }
+  } catch {}
+  if (!ok) {
+    const ta = document.createElement("textarea");
+    ta.value = _currentKey;
+    ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { ok = document.execCommand("copy"); } catch { ok = false; }
+    document.body.removeChild(ta);
+  }
+  flash($("btn-copy-key"), ok ? "已复制" : "复制失败");
+});
+$("btn-rotate-key").addEventListener("click", async () => {
+  if (!confirm("重新生成会立即让旧 API key 失效，确定？")) return;
+  try { const d = await api("/apikey/rotate", {method:"POST"}); _currentKey=d.api_key; renderKey();
+    $("keyless-warn").style.display="none"; flash($("apikey-value"),"已重新生成"); }
+  catch(err){ alert("失败: "+err.message); }
+});
+$("btn-clear-key").addEventListener("click", async () => {
+  if (!confirm("清空后网关进入 keyless 模式，/v1/* 将无需鉴权，确定？")) return;
+  try { await api("/apikey/clear", {method:"POST"}); _currentKey=""; renderKey();
+    $("keyless-warn").style.display="block"; flash($("apikey-value"),"已清空"); }
+  catch(err){ alert("失败: "+err.message); }
+});
+function flash(el,msg){ const t=el.textContent; el.textContent=msg; setTimeout(()=>el.textContent=t,1500); }
+
+async function loadProviders(){
+  try {
+    const d = await api("/providers");
+    const body = $("providers-body");
+    body.innerHTML = "";
+    if (!d.providers.length){ body.innerHTML='<tr><td colspan="4" class="muted">无 provider</td></tr>'; return; }
+    d.providers.forEach(p => {
+      const tr = document.createElement("tr");
+      const modes = p.manual_auth.join(", ") || "—";
+      tr.innerHTML = '<td><strong>'+esc(p.display_name)+'</strong><br><span class="muted">'+esc(p.key)+'</span></td>'
+        + '<td><span class="badge '+cls(p.status)+'">'+esc(p.status)+'</span></td>'
+        + '<td class="muted">'+esc(modes)+'</td>'
+        + '<td style="text-align:right">'
+        + '<button class="secondary" data-login="'+esc(p.key)+'">登录</button> '
+        + '<button class="danger" data-del="'+esc(p.key)+'">删除</button>'
+        + '</td>';
+      body.appendChild(tr);
+    });
+    body.querySelectorAll("[data-login]").forEach(b => b.addEventListener("click", () => openProviderLogin(b.dataset.login, d.providers)));
+    body.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => deleteProvider(b.dataset.del)));
+  } catch(err){ $("providers-body").innerHTML='<tr><td colspan="4" class="error">加载失败: '+esc(err.message)+'</td></tr>'; }
+}
+function cls(status){ return ["valid","not_logged_in","failed","expired","invalid"].includes(status)?status:"not_logged_in"; }
+
+function openProviderLogin(key, providers){
+  const p = providers.find(x => x.key === key);
+  $("pl-title").textContent = p.display_name + " (" + key + ")";
+  $("pl-error").textContent="";
+  $("pl-cookie").value=""; $("pl-apikey").value=""; $("pl-token").value=""; $("pl-ua").value="";
+  $("pl-cookie-wrap").classList.toggle("hidden", !p.manual_auth.includes("cookie"));
+  $("pl-apikey-wrap").classList.toggle("hidden", !p.manual_auth.includes("api_key"));
+  $("provider-login").classList.remove("hidden");
+  $("provider-login").dataset.key = key;
+  $("provider-login").scrollIntoView({behavior:"smooth"});
+}
+$("pl-cancel").addEventListener("click", () => $("provider-login").classList.add("hidden"));
+$("pl-save").addEventListener("click", async () => {
+  const key = $("provider-login").dataset.key;
+  $("pl-error").textContent="";
+  const cookie = $("pl-cookie").value.trim() || null;
+  const token = $("pl-token").value.trim() || null;
+  const apiKey = $("pl-apikey").value.trim() || null;
+  const userAgent = $("pl-ua").value.trim() || null;
+  // Token is packaged as a Bearer Authorization header so the user never has
+  // to type "authorization: Bearer ..." by hand.
+  const headers = {};
+  if (token) headers["authorization"] = "Bearer " + token;
+  // Cookie-based sessions bind to the UA the cookies were issued under — without
+  // it upstream can reject the session as a mismatch. Make UA mandatory here.
+  if (cookie && !userAgent) {
+    $("pl-error").textContent = "填写了 Cookie 时，User-Agent 为必填项。";
+    return;
+  }
+  const body = {
+    cookie: cookie,
+    api_key: apiKey,
+    headers: Object.keys(headers).length ? headers : null,
+    user_agent: userAgent,
+  };
+  try {
+    await api("/providers/"+encodeURIComponent(key)+"/login", {method:"POST", body: JSON.stringify(body)});
+    $("provider-login").classList.add("hidden");
+    await loadProviders();
+  } catch(err){ $("pl-error").textContent = err.message; }
+});
+async function deleteProvider(key){
+  if (!confirm("删除 "+key+" 的凭证？")) return;
+  try { await api("/providers/"+encodeURIComponent(key), {method:"DELETE"}); await loadProviders(); }
+  catch(err){ alert("失败: "+err.message); }
+}
+
+async function loadModels(){
+  const sel = $("test-model");
+  try {
+    const d = await api("/models");
+    sel.innerHTML = "";
+    const providers = Object.keys(d.models).sort();
+    if (!providers.length){ sel.innerHTML='<option value="">（无可用模型，先登录一个 provider）</option>'; return; }
+    providers.forEach(prov => {
+      const og = document.createElement("optgroup");
+      og.label = prov;
+      (d.models[prov]||[]).forEach(m => {
+        const opt = document.createElement("option");
+        opt.value = m.id; opt.textContent = m.id;
+        og.appendChild(opt);
+      });
+      if (og.children.length) sel.appendChild(og);
+    });
+  } catch(err){ sel.innerHTML='<option value="">加载失败</option>'; }
+}
+$("btn-refresh-models").addEventListener("click", loadModels);
+$("btn-send-test").addEventListener("click", async () => {
+  const model = $("test-model").value;
+  const message = $("test-message").value.trim();
+  const out = $("test-output");
+  if (!model){ out.textContent="请先选择模型。"; out.className="chat-out error"; return; }
+  if (!message){ out.textContent="请输入消息。"; out.className="chat-out error"; return; }
+  out.textContent="发送中…"; out.className="chat-out muted";
+  $("btn-send-test").disabled = true;
+  try {
+    const d = await api("/chat/test", {method:"POST", body: JSON.stringify({model, message})});
+    if (d.ok){ out.textContent = d.content || "(空回复)"; out.className="chat-out"; }
+    else { out.textContent = "失败: " + (d.error||"未知错误"); out.className="chat-out error"; }
+  } catch(err){ out.textContent = "请求失败: " + err.message; out.className="chat-out error"; }
+  finally { $("btn-send-test").disabled = false; }
+});
+
+function esc(s){
+  return String(s==null?"":s).replace(/[&<>"']/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+
+bootstrap();
+</script>
+</body>
+</html>

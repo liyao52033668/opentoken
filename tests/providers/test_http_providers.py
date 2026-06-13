@@ -2186,6 +2186,92 @@ def test_glm_cn_chat_maps_429_to_rate_limit_error() -> None:
         client.chat_completion(message="hi", model="glm-4-plus")
 
 
+def test_qwen_api_client_raises_waf_blocked_when_chats_new_returns_html_risk_page(tmp_path) -> None:
+    """When Alibaba Cloud WAF intercepts /api/v2/chats/new it returns a 200 HTML
+    risk page (aliyun_waf_aa / aliyun_waf_bb JS challenge) instead of JSON. The
+    client must surface QwenWafBlockedError — not a raw JSONDecodeError that
+    bubbles up as an opaque 500 — so the adapter can fall back to the browser
+    path that executes the WAF challenge."""
+    from opentoken.providers.qwen import QwenApiClient, QwenWafBlockedError
+
+    credentials = ProviderCredentialRecord(
+        provider="qwen-intl",
+        kind="browser_session",
+        cookie="token=1",
+        headers={},
+        user_agent="ua",
+        metadata={},
+        status="valid",
+    )
+
+    waf_html = (
+        '<!doctypehtml><meta charset="UTF-8">'
+        '<meta name="aliyun_waf_aa"content="ff926c7f07e45e2e">'
+        '<meta name="aliyun_waf_bb"content="eade71455e2ad9c6">'
+        "<title></title>"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/api/v2/chats/new"):
+            return httpx.Response(200, text=waf_html, headers={"content-type": "text/html; charset=utf-8"})
+        return httpx.Response(200, json={})
+
+    client = QwenApiClient(
+        credentials,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        state_dir=tmp_path,
+    )
+
+    with pytest.raises(QwenWafBlockedError):
+        client.chat_completion(message="hi", model="qwen3.6-plus")
+
+
+def test_qwen_adapter_chat_falls_back_to_browser_client_on_waf_block() -> None:
+    """When the HTTP path hits the WAF risk page, the adapter must fall back to
+    the browser (Camoufox) client's chat_completion, which runs fetch inside a
+    real browser page and therefore passes the WAF JS challenge."""
+    from opentoken.providers.qwen import QwenWebAdapter, QwenWafBlockedError
+
+    credentials = ProviderCredentialRecord(
+        provider="qwen-intl",
+        kind="browser_session",
+        cookie="qwen_session=session-1",
+        headers={},
+        user_agent="ua",
+        metadata={"session_token": "session-1"},
+        status="valid",
+    )
+    calls: dict[str, object] = {}
+
+    class HttpClientThatHitsWaf:
+        def chat_completion(self, *, message: str, model: str):
+            raise QwenWafBlockedError(
+                "Qwen Intl API blocked by WAF risk page (non-JSON response)."
+            )
+
+    class BrowserClient:
+        def chat_completion(self, *, message: str, model: str):
+            calls["browser_message"] = message
+            calls["browser_model"] = model
+            return "browser answer"
+
+    adapter = QwenWebAdapter(
+        client_factory=lambda _: HttpClientThatHitsWaf(),
+        stream_client_factory=lambda _: BrowserClient(),
+    )
+
+    response = adapter.chat(
+        NormalizedChatRequest(
+            model="algae/qwen-intl/qwen3.6-plus",
+            messages=[{"role": "user", "content": "hello"}],
+        ),
+        credentials,
+    )
+
+    assert response.content == "browser answer"
+    assert calls["browser_model"] == "qwen3.6-plus"
+
+
 def test_qwen_error_from_json_body_detects_failure_envelope() -> None:
     from opentoken.providers.qwen import _qwen_error_from_json_body
 

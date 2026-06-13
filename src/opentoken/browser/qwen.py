@@ -10,6 +10,31 @@ from opentoken.browser.common import (
 )
 
 
+# The endpoint polled inside the page to decide "is the user logged in?".
+# chat.qwen.ai authenticates purely via cookies (its page fetches send no
+# Authorization header — see camoufox_clients._chat_qwen_intl), so we can't
+# key login-completion off a Bearer token the way claude/glm do. Instead we
+# hit an authenticated-only API: 200 = logged in, 401/403 = guest, anything
+# else = keep polling. /api/v2/me is the whoami-style endpoint qwen.ai's own
+# SPA calls after login; it returns the user profile under a valid session and
+# 401 for an anonymous one.
+_QWEN_AUTH_PROBE_URL = 'https://chat.qwen.ai/api/v2/me'
+_QWEN_AUTH_PROBE_JS = """
+async ({ probeUrl }) => {
+  try {
+    const res = await fetch(probeUrl, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { 'Accept': 'application/json' },
+    });
+    return { ok: res.ok, status: res.status };
+  } catch (err) {
+    return { ok: false, status: 0, error: String(err) };
+  }
+}
+"""
+
+
 def capture_qwen_browser_credentials(*, state_dir: Path) -> dict[str, str]:
     sync_playwright = require_sync_playwright()
     browser_state_dir = prepare_browser_state_dir(state_dir, 'qwen-intl')
@@ -21,22 +46,6 @@ def capture_qwen_browser_credentials(*, state_dir: Path) -> dict[str, str]:
         )
         try:
             page = context.pages[0] if context.pages else context.new_page()
-            session_token: dict[str, str] = {'value': ''}
-
-            def on_request(request) -> None:
-                if 'qwen.ai' not in request.url:
-                    return
-                # 真登录的 Bearer 头是最可靠的信号 —— 只信它,不要再从 cookie
-                # 里宽松 regex 匹配 (?:session|token|auth)[^=]+ —— 那个会命中
-                # _csrf_session / XSRF-TOKEN / oauth_state 等非鉴权 cookie,
-                # 把 guest 当登录把可用凭证替换掉。
-                auth = request.headers.get('authorization', '')
-                if auth.lower().startswith('bearer '):
-                    bearer_token = auth[7:].strip()
-                    if bearer_token and bearer_token.lower() not in {'undefined', 'null'}:
-                        session_token['value'] = bearer_token
-
-            page.on('request', on_request)
             page.goto('https://chat.qwen.ai/', wait_until='domcontentloaded')
             user_agent = page.evaluate('() => navigator.userAgent')
 
@@ -44,12 +53,22 @@ def capture_qwen_browser_credentials(*, state_dir: Path) -> dict[str, str]:
             while time.monotonic() < deadline:
                 cookies = context.cookies(['https://chat.qwen.ai', 'https://qwen.ai'])
                 cookie_string = build_cookie_string(cookies)
-                if cookie_string and session_token['value']:
-                    return {
-                        'cookie': cookie_string,
-                        'session_token': session_token['value'],
-                        'user_agent': user_agent,
-                    }
+                if cookie_string:
+                    # chat.qwen.ai is cookie-only auth: there is no Bearer to
+                    # harvest. Treat "the cookie jar passes the authenticated
+                    # whoami probe" as the login-complete signal. This avoids
+                    # both failure modes the prior guards hit — accepting guest
+                    # cookies (CSRF/anonymous cookies exist before login) and
+                    # waiting forever for a Bearer header that never arrives.
+                    probe = page.evaluate(
+                        _QWEN_AUTH_PROBE_JS,
+                        {'probeUrl': _QWEN_AUTH_PROBE_URL},
+                    )
+                    if probe.get('ok'):
+                        return {
+                            'cookie': cookie_string,
+                            'user_agent': user_agent,
+                        }
                 time.sleep(2)
         finally:
             context.close()

@@ -43,12 +43,16 @@ instances:
     workers:
       - name: deepseek_worker
         worker_type: deepseek
+      - name: chatgpt_worker
+        worker_type: chatgpt
       - name: claude_worker
         worker_type: claude
       - name: doubao_worker
         worker_type: doubao
       - name: kimi_worker
         worker_type: kimi
+      - name: qwen_intl_worker
+        worker_type: qwen-intl
 
   # 多实例示例（需要多个账号/代理时使用）：
   # - name: browser_us

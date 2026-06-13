@@ -25,6 +25,39 @@ from opentoken.providers.web_tool_calling import (
 
 # ── Qwen International ────────────────────────────────────────────────────────
 
+
+class QwenWafBlockedError(RuntimeError):
+    """Raised when chat.qwen.ai returns a WAF risk page instead of JSON.
+
+    Alibaba Cloud WAF intercepts direct httpx requests to the API endpoints and
+    returns a 200 HTML page carrying a JS challenge (aliyun_waf_aa /
+    aliyun_waf_bb meta tags). httpx cannot execute the challenge, so the request
+    can never succeed over the HTTP path — the caller must fall back to a real
+    browser (Camoufox) that runs the JS and obtains the clearance cookie.
+
+    Subclasses RuntimeError so it flows through the existing runtime-error
+    classification in the chat route when no browser fallback is available.
+    """
+
+
+def _response_is_qwen_waf_block(response: httpx.Response) -> bool:
+    """Detect an Alibaba Cloud WAF risk-page response.
+
+    The WAF returns HTTP 200 with an HTML body (not JSON) that embeds the
+    aliyun_waf_aa / aliyun_waf_bb JS-challenge meta tags. httpx cannot run the
+    challenge, so a body that is neither JSON nor empty is treated as a block —
+    this also catches the empty-body edge case (char 0 JSONDecodeError) which
+    previously surfaced as an opaque 500.
+    """
+    content_type = str(response.headers.get("content-type", "")).lower()
+    if "application/json" in content_type:
+        return False
+    body = (response.text or "").strip()
+    if not body:
+        return True
+    return body[:1] != "{" and body[:1] != "["
+
+
 class QwenApiClient:
     """API client for Qwen International (chat.qwen.ai)."""
 
@@ -69,6 +102,11 @@ class QwenApiClient:
                 "Qwen credentials expired or invalid. Run `opentoken login qwen` again."
             )
         response.raise_for_status()
+        if _response_is_qwen_waf_block(response):
+            raise QwenWafBlockedError(
+                "Qwen Intl API blocked by WAF risk page (non-JSON response); "
+                "browser fallback required to execute the WAF JS challenge."
+            )
         data = response.json()
         chat_id = data.get("data", {}).get("id") or data.get("data", {}).get("chat_id")
         if not isinstance(chat_id, str) or not chat_id:
@@ -299,11 +337,58 @@ class QwenWebAdapter(ProviderAdapter):
                 tool_calls=tool_calls,
                 finish_reason=finish_reason,
             )
-        response = client.chat_completion(
-            message=build_qwen_prompt(request),
+        response = self._chat_via_http_or_browser(
+            client=client,
+            request=request,
+            credentials=credentials,
             model=model,
         )
         return _coerce_qwen_client_response(request.model, response)
+
+    def _chat_via_http_or_browser(
+        self,
+        *,
+        client: QwenApiClient,
+        request: NormalizedChatRequest,
+        credentials: ProviderCredentialRecord,
+        model: str,
+    ) -> ChatResponse | str:
+        """Run the HTTP (httpx) chat path, falling back to the browser client
+        when the upstream WAF blocks direct API access.
+
+        The WAF JS challenge cannot be solved by httpx; only a real browser page
+        (Camoufox) can execute it and obtain the clearance cookie. The
+        stream_client_factory provides that browser client (its chat_completion
+        runs fetch inside a live page). Without a browser client the WAF error
+        re-raises so the chat route surfaces a classified runtime error instead
+        of an opaque 500.
+        """
+        message = build_qwen_prompt(request)
+        try:
+            return client.chat_completion(message=message, model=model)
+        except QwenWafBlockedError:
+            return self._browser_chat_completion(credentials, message=message, model=model)
+
+    def _browser_chat_completion(
+        self,
+        credentials: ProviderCredentialRecord,
+        *,
+        message: str,
+        model: str,
+    ) -> str:
+        if self._stream_client_factory is None:
+            raise QwenWafBlockedError(
+                "Qwen Intl API blocked by WAF risk page and no browser client is "
+                "configured; cannot execute the WAF JS challenge."
+            )
+        browser_client = self._stream_client_factory(credentials)
+        chat_method = getattr(browser_client, "chat_completion", None)
+        if not callable(chat_method):
+            raise QwenWafBlockedError(
+                "Qwen Intl API blocked by WAF risk page and the configured browser "
+                "client has no chat_completion; cannot fall back."
+            )
+        return chat_method(message=message, model=model)
 
     def stream_chat(
         self,

@@ -16,7 +16,13 @@ _CACHED_PATH: Path | None = None
 
 
 def maybe_require_api_key(request: Request):
-    if request.url.path == "/health":
+    path = request.url.path
+    if path == "/health":
+        return None
+    # The admin console (page at "/" and API under "/console/api/*") authenticates
+    # via its own admin-password session cookie, not the gateway api_key. Let it
+    # bypass the bearer check here — the console router enforces its own auth.
+    if path == "/" or path.startswith("/console"):
         return None
 
     expected_api_key, keyless_explicit = _get_expected_api_key(resolve_app_config_path())

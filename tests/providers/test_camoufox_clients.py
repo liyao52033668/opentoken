@@ -2645,7 +2645,7 @@ def test_stream_doubao_dom_completion_yields_incremental_text_and_persists_conve
     assert captured["persisted_conversation_id"] == "doubao-conv-dom"
     assert page.locator_instance.clicked is True
     assert page.keyboard.actions == [
-        ("press", "Meta+A"),
+        ("press", camoufox_module._SELECT_ALL_CHORD),
         ("press", "Backspace"),
         ("type", prompt),
     ]
@@ -3890,7 +3890,7 @@ def test_dom_send_and_wait_qwen_cn_types_prompt_and_returns_stable_markdown_repl
     assert text == "qwen-dom-scan"
     assert page.locator_instance.clicked is True
     assert page.keyboard.actions == [
-        ("press", "Meta+A"),
+        ("press", camoufox_module._SELECT_ALL_CHORD),
         ("press", "Backspace"),
         ("type", prompt),
         ("press", "Enter"),
@@ -3999,7 +3999,7 @@ def test_dom_send_and_wait_doubao_uses_live_textarea_selector_and_captures_respo
     assert persisted["conversation_id"] == "doubao-conv-1"
     assert page.locator_instance.clicked is True
     assert page.keyboard.actions == [
-        ("press", "Meta+A"),
+        ("press", camoufox_module._SELECT_ALL_CHORD),
         ("press", "Backspace"),
         ("type", prompt),
     ]
@@ -4282,7 +4282,7 @@ def test_dom_send_and_wait_glm_cn_presses_enter_and_parses_stream_response() -> 
         "conversation_id": "",
     }
     assert page.keyboard.actions == [
-        ("press", "Meta+A"),
+        ("press", camoufox_module._SELECT_ALL_CHORD),
         ("press", "Backspace"),
         ("type", prompt),
         ("press", "Enter"),

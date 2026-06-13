@@ -11,7 +11,11 @@ logger = logging.getLogger(__name__)
 from fastapi.testclient import TestClient
 
 from opentoken.api.app import create_app
-from opentoken.browser.common import CamoufoxRuntimeStatus, probe_camoufox_runtime
+from opentoken.browser.common import (
+    CamoufoxRuntimeStatus,
+    probe_camoufox_runtime,
+    _resolve_playwright_fallback_browser_name,
+)
 from opentoken.config.app_config import load_or_create_app_config
 from opentoken.config.paths import resolve_app_config_path, resolve_providers_dir
 from opentoken.models.discovery import load_model_catalog
@@ -70,6 +74,11 @@ def run_verification_suite(*, requested_providers: tuple[str, ...] = ()) -> Veri
     app_config = load_or_create_app_config(resolve_app_config_path())
     headers = {"authorization": f"Bearer {app_config['api_key']}"}
     camoufox_runtime = probe_camoufox_runtime()
+    fallback_browser = (
+        _resolve_playwright_fallback_browser_name()
+        if not camoufox_runtime.browser_installed
+        else None
+    )
 
     with TestClient(create_app()) as client:
         def verify(provider: str) -> ProviderVerificationResult:
@@ -80,6 +89,7 @@ def run_verification_suite(*, requested_providers: tuple[str, ...] = ()) -> Veri
                 model=default_models.get(provider),
                 provider_records=provider_records,
                 camoufox_runtime=camoufox_runtime,
+                fallback_browser=fallback_browser,
             )
 
         # Verify providers concurrently. Each provider's live checks are slow
@@ -129,6 +139,7 @@ def _verify_one_provider(
     model: str | None,
     provider_records: dict[str, object],
     camoufox_runtime: CamoufoxRuntimeStatus,
+    fallback_browser: str | None = None,
 ) -> ProviderVerificationResult:
     definition = get_provider_definition(provider)
     display_name = definition.display_name if definition is not None else provider
@@ -143,20 +154,24 @@ def _verify_one_provider(
         )
 
     if provider in _CAMOUFOX_RUNTIME_PROVIDERS and not camoufox_runtime.browser_installed:
-        checks = (
-            _verify_models(client, headers, provider, model),
-            _failed_detail("chat", _camoufox_runtime_missing_detail(camoufox_runtime.install_hint)),
-            _failed_detail("chat_stream", _camoufox_runtime_missing_detail(camoufox_runtime.install_hint)),
-            _failed_detail("responses", _camoufox_runtime_missing_detail(camoufox_runtime.install_hint)),
-            _failed_detail("responses_stream", _camoufox_runtime_missing_detail(camoufox_runtime.install_hint)),
-        )
-        return ProviderVerificationResult(
-            provider=provider,
-            display_name=display_name,
-            model=model,
-            status="failed",
-            checks=checks,
-        )
+        # Camoufox is missing but a fallback browser (system Chrome or Playwright-
+        # bundled browser) is available — let the real chat checks run instead of
+        # short-circuiting.
+        if fallback_browser is None:
+            checks = (
+                _verify_models(client, headers, provider, model),
+                _failed_detail("chat", _camoufox_runtime_missing_detail(camoufox_runtime.install_hint)),
+                _failed_detail("chat_stream", _camoufox_runtime_missing_detail(camoufox_runtime.install_hint)),
+                _failed_detail("responses", _camoufox_runtime_missing_detail(camoufox_runtime.install_hint)),
+                _failed_detail("responses_stream", _camoufox_runtime_missing_detail(camoufox_runtime.install_hint)),
+            )
+            return ProviderVerificationResult(
+                provider=provider,
+                display_name=display_name,
+                model=model,
+                status="failed",
+                checks=checks,
+            )
 
     checks = (
         _verify_models(client, headers, provider, model),

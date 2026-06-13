@@ -4,7 +4,7 @@ import traceback
 import uuid
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from opentoken.api.auth import maybe_require_api_key
 from opentoken.api.routes.chat import router as chat_router
@@ -139,6 +139,18 @@ def create_app() -> FastAPI:
     app.include_router(embeddings_router)
     app.include_router(chat_router)
     app.include_router(responses_router)
+
+    # Admin console: a single-page UI at "/" backed by "/console/api/*".
+    # Auth is its own admin-password session, gated behind OPENTOKEN_ADMIN_PASSWORD.
+    from opentoken.console.routes import router as console_router
+    from opentoken.console.page import render_console_html
+
+    app.include_router(console_router)
+
+    @app.get("/", include_in_schema=False)
+    def console_page() -> HTMLResponse:
+        return HTMLResponse(render_console_html())
+
     return app
 
 
