@@ -16,6 +16,7 @@ venv/
 !.env.example
 .opentoken/
 .opentoken/
+.codegraph/*
 
 # Logs / runtime files
 *.log
@@ -39,3 +40,4 @@ live_provider_smoke_report.json
 *_report.md
 *_report_final.md
 *_report.json
+/.codegraph/.gitignore
