@@ -579,11 +579,18 @@ class GLMIntlApiClient(GLMApiClient):
         )
         response.raise_for_status()
         payload = response.json()
+        items: list[object] = []
+        if isinstance(payload, dict):
+            data = payload.get("data") if isinstance(payload.get("data"), list) else payload.get("models")
+            if isinstance(data, list):
+                items = data
+        elif isinstance(payload, list):
+            items = payload
         seen: list[str] = []
-        for item in payload.get("data", []):
+        for item in items:
             if not isinstance(item, dict):
                 continue
-            model_id = str(item.get("id") or "").strip()
+            model_id = str(item.get("id") or item.get("name") or "").strip()
             if model_id and model_id not in seen:
                 seen.append(model_id)
         self._site_model_ids = seen
