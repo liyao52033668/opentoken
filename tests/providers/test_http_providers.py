@@ -2006,7 +2006,7 @@ def test_glm_intl_api_client_streams_answer_text_from_v2_sse() -> None:
         if request.url.path == "/api/v1/chats/new":
             seen["new_chat_payload"] = json.loads(request.content.decode("utf-8"))
             return httpx.Response(200, json={"id": "chat-123"})
-        if request.url.path == "/api/v2/chat/completions":
+        if request.url.path == "/api/chat/completions":
             seen["completion_headers"] = dict(request.headers)
             seen["completion_payload"] = json.loads(request.content.decode("utf-8"))
             seen["completion_query"] = dict(request.url.params)
@@ -2073,7 +2073,7 @@ def test_glm_intl_chat_completion_salvages_think_only_stream() -> None:
             return httpx.Response(200, json={"data": [{"id": "GLM-5.1"}]})
         if request.url.path == "/api/v1/chats/new":
             return httpx.Response(200, json={"id": "chat-123"})
-        if request.url.path == "/api/v2/chat/completions":
+        if request.url.path == "/api/chat/completions":
             return httpx.Response(
                 200,
                 text=(
@@ -2124,7 +2124,7 @@ def test_glm_intl_api_client_accepts_list_style_models_payload() -> None:
             return httpx.Response(200, json=[{"id": "GLM-5.1"}, {"id": "GLM-5-Turbo"}])
         if request.url.path == "/api/v1/chats/new":
             return httpx.Response(200, json={"id": "chat-123"})
-        if request.url.path == "/api/v2/chat/completions":
+        if request.url.path == "/api/chat/completions":
             return httpx.Response(
                 200,
                 text=(
@@ -2181,7 +2181,7 @@ def test_glm_intl_api_client_accepts_nested_auth_and_chat_payloads() -> None:
             return httpx.Response(200, json={"models": [{"name": "GLM-5.1"}]})
         if request.url.path == "/api/v1/chats/new":
             return httpx.Response(200, json={"chat": {"id": "chat-123"}})
-        if request.url.path == "/api/v2/chat/completions":
+        if request.url.path == "/api/chat/completions":
             return httpx.Response(
                 200,
                 text=(
