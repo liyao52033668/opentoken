@@ -2154,6 +2154,63 @@ def test_glm_intl_api_client_accepts_list_style_models_payload() -> None:
     assert "".join(client.iter_chat_completion_text(message="hello glm-intl", model="GLM-5.1")) == "答案"
 
 
+def test_glm_intl_api_client_accepts_nested_auth_and_chat_payloads() -> None:
+    credentials = ProviderCredentialRecord(
+        provider="glm-intl",
+        kind="browser_session",
+        cookie="token=cookie-token",
+        headers={},
+        user_agent="Mozilla/5.0",
+        metadata={},
+        status="valid",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/auths/":
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "id": "user-123",
+                        "name": "loki",
+                        "token": "bearer-123",
+                    }
+                },
+            )
+        if request.url.path == "/api/models":
+            return httpx.Response(200, json={"models": [{"name": "GLM-5.1"}]})
+        if request.url.path == "/api/v1/chats/new":
+            return httpx.Response(200, json={"chat": {"id": "chat-123"}})
+        if request.url.path == "/api/v2/chat/completions":
+            return httpx.Response(
+                200,
+                text=(
+                    'data: {"type":"chat:completion","data":{"delta_content":"答","phase":"answer"}}\n\n'
+                    'data: {"type":"chat:completion","data":{"delta_content":"案","phase":"answer"}}\n\n'
+                    'data: {"type":"chat:completion","data":{"phase":"done","done":true}}\n\n'
+                    "data: [DONE]\n\n"
+                ),
+                headers={"content-type": "text/event-stream"},
+            )
+        if request.url.path == "/":
+            return httpx.Response(
+                200,
+                text=(
+                    '<script src="https://z-cdn.chatglm.cn/z-ai/frontend/prod-fe-1.1.12/'
+                    '_app/immutable/entry/start.js"></script>'
+                ),
+                headers={"content-type": "text/html"},
+            )
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = GLMIntlApiClient(
+        credentials,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assert client.chat_completion(message="hello glm-intl", model="GLM-5.1") == "答案"
+
+
 def test_glm_adapter_streams_using_client_when_available() -> None:
     credentials = ProviderCredentialRecord(
         provider="glm-cn",

@@ -543,9 +543,14 @@ class GLMIntlApiClient(GLMApiClient):
         )
         response.raise_for_status()
         payload = response.json()
-        token = str(payload.get("token") or self._extract_cookie_value("token") or "").strip()
-        user_id = str(payload.get("id") or "").strip()
-        user_name = str(payload.get("name") or "User").strip() or "User"
+        data = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else payload
+        token = str(
+            (data.get("token") if isinstance(data, dict) else "")
+            or self._extract_cookie_value("token")
+            or ""
+        ).strip()
+        user_id = str((data.get("id") if isinstance(data, dict) else "") or "").strip()
+        user_name = str((data.get("name") if isinstance(data, dict) else "") or "User").strip() or "User"
         if not token or not user_id:
             raise RuntimeError("GLM Intl auth context is missing token or user id.")
         self._intl_auth_context = {
@@ -759,7 +764,14 @@ class GLMIntlApiClient(GLMApiClient):
         )
         response.raise_for_status()
         payload = response.json()
-        chat_id = str(payload.get("id") or payload.get("chat", {}).get("id") or "").strip()
+        data = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else None
+        chat = payload.get("chat") if isinstance(payload, dict) and isinstance(payload.get("chat"), dict) else None
+        chat_id = str(
+            (payload.get("id") if isinstance(payload, dict) else "")
+            or (chat.get("id") if isinstance(chat, dict) else "")
+            or (data.get("id") if isinstance(data, dict) else "")
+            or ""
+        ).strip()
         if not chat_id:
             raise RuntimeError("GLM Intl chat creation returned no chat id.")
         return chat_id
