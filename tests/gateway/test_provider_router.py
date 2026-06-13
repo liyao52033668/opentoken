@@ -261,7 +261,6 @@ def test_default_router_registers_camoufox_clients_for_browser_providers() -> No
         "gemini",
         "grok",
         "glm-cn",
-        "glm-intl",
     }
 
     from opentoken.providers.chatgpt import ChatGPTWebAdapter
@@ -281,7 +280,7 @@ def test_default_router_registers_camoufox_clients_for_browser_providers() -> No
         "gemini": GeminiWebAdapter,
         "grok": GrokWebAdapter,
         "glm-cn": BrowserChatAdapter,
-        "glm-intl": BrowserChatAdapter,
+        "glm-intl": GLMIntlWebAdapter,
     }
 
     for provider in browser_providers:
@@ -366,6 +365,8 @@ def test_browser_chat_adapter_normalizes_non_runtime_exceptions() -> None:
 def test_router_prefers_browser_backed_adapters_for_doubao_and_glm() -> None:
     router = ProviderRouter()
 
+    from opentoken.providers.glm import GLMIntlWebAdapter
+
     assert isinstance(router._adapters["doubao"], BrowserChatAdapter)
     assert isinstance(router._adapters["glm-cn"], BrowserChatAdapter)
-    assert isinstance(router._adapters["glm-intl"], BrowserChatAdapter)
+    assert isinstance(router._adapters["glm-intl"], GLMIntlWebAdapter)

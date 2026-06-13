@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 # Provider types that use direct HTTP API calls (bypass browser pool)
 _HTTP_PROVIDERS = frozenset({
-    "deepseek", "claude", "kimi", "manus", "mimo", "nim", "unified",
+    "deepseek", "claude", "kimi", "manus", "mimo", "nim", "unified", "glm-intl",
 })
 
 # Providers that support cross-model fallback when rate-limited. NIM is the
@@ -45,7 +45,7 @@ _CHAINABLE_PROVIDERS = frozenset({"nim"})
 
 # Provider types that use the browser pool
 _BROWSER_PROVIDERS = frozenset({
-    "doubao", "qwen-intl", "qwen-cn", "chatgpt", "gemini", "grok", "glm-cn", "glm-intl",
+    "doubao", "qwen-intl", "qwen-cn", "chatgpt", "gemini", "grok", "glm-cn",
 })
 
 
@@ -100,11 +100,7 @@ class PoolAwareRouter:
                 login_hint="opentoken login glm-cn",
                 client_factory=lambda credentials: CamoufoxProviderClient("glm-cn", credentials),
             ),
-            "glm-intl": BrowserChatAdapter(
-                provider_name="GLM International",
-                login_hint="opentoken login glm-intl",
-                client_factory=lambda credentials: CamoufoxProviderClient("glm-intl", credentials),
-            ),
+            "glm-intl": GLMIntlWebAdapter(),
         }
         for key, adapter in defaults.items():
             if key not in self._http_adapters:
