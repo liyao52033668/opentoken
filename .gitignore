@@ -16,7 +16,6 @@ venv/
 !.env.example
 .opentoken/
 .opentoken/
-.codegraph/*
 
 # Logs / runtime files
 *.log
