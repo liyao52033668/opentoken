@@ -2226,6 +2226,55 @@ def test_qwen_api_client_raises_waf_blocked_when_chats_new_returns_html_risk_pag
         client.chat_completion(message="hi", model="qwen3.6-plus")
 
 
+def test_qwen_api_client_raises_waf_blocked_when_chat_completions_returns_html_risk_page(tmp_path) -> None:
+    """The WAF may intercept the second upstream call (/api/v2/chat/completions)
+    even when the first (/api/v2/chats/new) passed. The /chats/new WAF guard
+    alone is not enough — _chat_completion_response_text must detect a WAF HTML
+    body on the completion POST too and raise QwenWafBlockedError, otherwise
+    the non-JSON HTML gets fed to the SSE parser, surfaces as a generic
+    RuntimeError ("no text content"), and the adapter's except-QwenWafBlockedError
+    fallback never fires → opaque 500. This is why streaming (which goes
+    Camoufox-only) works while non-streaming gets blocked by the WAF."""
+    from opentoken.providers.qwen import QwenApiClient, QwenWafBlockedError
+
+    credentials = ProviderCredentialRecord(
+        provider="qwen-intl",
+        kind="browser_session",
+        cookie="token=1",
+        headers={},
+        user_agent="ua",
+        metadata={},
+        status="valid",
+    )
+
+    waf_html = (
+        '<!doctypehtml><meta charset="UTF-8">'
+        '<meta name="aliyun_waf_aa"content="ff926c7f07e45e2e">'
+        '<meta name="aliyun_waf_bb"content="eade71455e2ad9c6">'
+        "<title></title>"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/api/v2/chats/new"):
+            return httpx.Response(
+                200,
+                json={"data": {"id": "chat-1"}},
+                headers={"content-type": "application/json"},
+            )
+        if request.url.path.endswith("/api/v2/chat/completions"):
+            return httpx.Response(200, text=waf_html, headers={"content-type": "text/html; charset=utf-8"})
+        return httpx.Response(200, json={})
+
+    client = QwenApiClient(
+        credentials,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        state_dir=tmp_path,
+    )
+
+    with pytest.raises(QwenWafBlockedError):
+        client.chat_completion(message="hi", model="qwen3.6-plus")
+
+
 def test_qwen_adapter_chat_falls_back_to_browser_client_on_waf_block() -> None:
     """When the HTTP path hits the WAF risk page, the adapter must fall back to
     the browser (Camoufox) client's chat_completion, which runs fetch inside a

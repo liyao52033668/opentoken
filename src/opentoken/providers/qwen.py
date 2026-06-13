@@ -45,12 +45,18 @@ def _response_is_qwen_waf_block(response: httpx.Response) -> bool:
 
     The WAF returns HTTP 200 with an HTML body (not JSON) that embeds the
     aliyun_waf_aa / aliyun_waf_bb JS-challenge meta tags. httpx cannot run the
-    challenge, so a body that is neither JSON nor empty is treated as a block —
-    this also catches the empty-body edge case (char 0 JSONDecodeError) which
-    previously surfaced as an opaque 500.
+    challenge, so an HTML body is treated as a block — this also catches the
+    empty-body edge case (char 0 JSONDecodeError) which previously surfaced as
+    an opaque 500.
+
+    NOT a WAF block: application/json (real envelope), text/event-stream (the
+    normal SSE completion response — body starts with "data:", which would
+    otherwise be misread as non-JSON HTML).
     """
     content_type = str(response.headers.get("content-type", "")).lower()
     if "application/json" in content_type:
+        return False
+    if "text/event-stream" in content_type:
         return False
     body = (response.text or "").strip()
     if not body:
@@ -167,6 +173,19 @@ class QwenApiClient:
                 json=payload,
             )
 
+        # The WAF can intercept the completion POST even when /chats/new passed
+        # (clearance is per-request). A 200 HTML risk page would slip past
+        # raise_for_status below and surface as a generic "no text content"
+        # RuntimeError — NOT QwenWafBlockedError — so the adapter's browser
+        # fallback (except QwenWafBlockedError) never fires and the request
+        # becomes an opaque 500. This is the asymmetry that made streaming
+        # (Camoufox-only) work while non-streaming got WAF-blocked.
+        if _response_is_qwen_waf_block(response):
+            raise QwenWafBlockedError(
+                "Qwen Intl API blocked by WAF risk page on /api/v2/chat/completions "
+                "(non-JSON response); browser fallback required to execute the "
+                "WAF JS challenge."
+            )
         raise_for_provider_auth(
             response.status_code, provider="Qwen", login_command="opentoken login qwen"
         )
