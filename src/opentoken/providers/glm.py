@@ -15,6 +15,8 @@ from uuid import uuid4
 
 import httpx
 
+import logging
+logger = logging.getLogger(__name__)
 from opentoken.gateway.normalized import NormalizedChatRequest
 from opentoken.models.provider_credentials import ProviderCredentialRecord
 from opentoken.providers._client_cache import BoundedClientCache, close_httpx_backed_client
@@ -57,8 +59,8 @@ _GLM_ASSISTANT_ID_MAP = {
     "glm-4-zero": "676411c38945bbc58a905d31",
 }
 _GLM_INTL_SIGNATURE_SECRET = "key-@@@@)))()((9))-xxxx&&&%%%%%"
-_GLM_INTL_FRONTEND_VERSION_FALLBACK = "prod-fe-1.2.0"
-_GLM_INTL_FRONTEND_VERSION_PATTERN = re.compile(r"/z-ai/frontend/([^/]+)/_app/immutable/")
+_GLM_INTL_FRONTEND_VERSION_FALLBACK = "prod-fe-1.1.52"
+_GLM_INTL_FRONTEND_VERSION_PATTERN = re.compile(r"/z-ai/frontend/([^/]+)/(?:_app/immutable/|assets/)")
 _GLM_INTL_MODEL_CANDIDATES = {
     "glm-4-plus": ("GLM-5-Turbo", "glm-4.7", "glm-5", "GLM-5.1"),
     "glm-4-think": ("GLM-5.1", "zero", "glm-5", "GLM-5-Turbo"),
@@ -515,7 +517,7 @@ class GLMIntlApiClient(GLMApiClient):
     def build_headers(self) -> dict[str, str]:
         return {
             "Content-Type": "application/json",
-            "Accept": "text/event-stream",
+            "Accept": "*/*",
             "Cookie": self._credentials.cookie or "",
             "User-Agent": self._credentials.user_agent or "Mozilla/5.0",
             "Referer": "https://chat.z.ai/",
@@ -580,6 +582,12 @@ class GLMIntlApiClient(GLMApiClient):
         )
         response.raise_for_status()
         version = _extract_glm_intl_frontend_version(response.text)
+        if version == _GLM_INTL_FRONTEND_VERSION_FALLBACK:
+            logger.warning(
+                "GLM Intl frontend version extraction fell back to %s; "
+                "HTML may have changed structure.",
+                version,
+            )
         self._frontend_version = version
         return version
 
@@ -828,7 +836,7 @@ class GLMIntlApiClient(GLMApiClient):
             timestamp_ms=str(timestamp_ms),
         )
         headers = self._json_headers(
-            accept="text/event-stream",
+            accept="*/*",
             authorization=token,
             frontend_version=frontend_version,
         )
@@ -884,7 +892,7 @@ class GLMIntlApiClient(GLMApiClient):
         saw_any_piece = False
         with self._client.stream(
             "POST",
-            f"{self._base_url}/api/v2/chat/completions?{urlencode(url_params)}",
+            f"{self._base_url}/api/chat/completions?{urlencode(url_params)}",
             headers=headers,
             json=completion_payload,
         ) as stream_response:
@@ -920,6 +928,11 @@ class GLMIntlApiClient(GLMApiClient):
                 
                 error_detail = _extract_glm_intl_stream_error(payload)
                 if error_detail:
+                    if "refresh" in error_detail.lower() and "app" in error_detail.lower():
+                        raise RuntimeError(
+                            f"GLM Intl rejected the request (frontend version={self._frontend_version!r}): "
+                            f"{error_detail}"
+                        )
                     raise RuntimeError(error_detail)
                 for phase, text in _extract_glm_intl_phased_segments(payload):
                     for piece in projector.push(phase=phase, text=text):
