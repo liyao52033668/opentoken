@@ -65,6 +65,15 @@ _GLM_INTL_MODEL_CANDIDATES = {
 }
 
 
+def _safe_utc_offset_minutes(dt: datetime) -> float:
+    offset = dt.utcoffset()
+    if offset is None:
+        offset = timezone.utc.utcoffset(dt)
+    if offset is None:
+        return 0.0
+    return offset.total_seconds() / 60
+
+
 def _glm_chat_mode_for_model(model: str) -> str:
     model_lower = model.strip().lower()
     if "think" in model_lower or model_lower.endswith("-zero"):
@@ -682,7 +691,7 @@ class GLMIntlApiClient(GLMApiClient):
             "protocol": "https:",
             "referrer": "",
             "title": "Z.ai - Free AI Chatbot & Agent powered by GLM-5.1 & GLM-5",
-            "timezone_offset": str(-int((now.utcoffset() or timezone.utc.utcoffset(now) or 0).total_seconds() / 60)),
+            "timezone_offset": str(-int(_safe_utc_offset_minutes(now))),
             "local_time": now_utc.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "utc_time": now_utc.strftime("%a, %d %b %Y %H:%M:%S GMT"),
             "is_mobile": "false",
