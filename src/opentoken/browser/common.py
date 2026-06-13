@@ -89,7 +89,17 @@ class _CamoufoxPlaywrightSession:
             manager = sync_playwright()
             playwright = manager.__enter__()
             try:
-                browser_type = getattr(playwright, fallback_browser_name)
+                # 'chrome' is not a Playwright BrowserType — it's a Chromium
+                # *channel* pointing at the user's locally-installed Chrome.
+                # Route it through chromium with channel='chrome' (and an
+                # explicit executable_path discovered on the host) so users
+                # get their real browser, not the Playwright-bundled one.
+                if fallback_browser_name == 'chrome':
+                    browser_type = playwright.chromium
+                    is_system_chrome = True
+                else:
+                    browser_type = getattr(playwright, fallback_browser_name)
+                    is_system_chrome = False
                 fallback_launch_options = {
                     'headless': headless,
                     **kwargs,
@@ -102,9 +112,15 @@ class _CamoufoxPlaywrightSession:
                 locale = locale.strip()
                 if locale:
                     fallback_launch_options['locale'] = locale
-                executable_path = getattr(browser_type, 'executable_path', None)
-                if isinstance(executable_path, str) and executable_path.strip():
-                    fallback_launch_options.setdefault('executable_path', executable_path)
+                if is_system_chrome:
+                    fallback_launch_options['channel'] = 'chrome'
+                    chrome_path = _discover_system_chrome_executable()
+                    if chrome_path:
+                        fallback_launch_options['executable_path'] = chrome_path
+                else:
+                    executable_path = getattr(browser_type, 'executable_path', None)
+                    if isinstance(executable_path, str) and executable_path.strip():
+                        fallback_launch_options.setdefault('executable_path', executable_path)
                 context = browser_type.launch_persistent_context(
                     str(Path(user_data_dir)),
                     **fallback_launch_options,
@@ -120,7 +136,8 @@ class _CamoufoxPlaywrightSession:
 
         status = probe_camoufox_runtime()
         raise RuntimeError(
-            'Camoufox browser runtime is not installed and no Playwright fallback browser is available. '
+            'Camoufox browser runtime is not installed and no fallback browser is available '
+            '(neither a system-installed Chrome nor a Playwright-bundled browser). '
             f'{status.install_hint}'
         )
 
@@ -232,11 +249,68 @@ def _import_playwright_sync_api():
     return sync_playwright
 
 
+_SYSTEM_CHROME_PATHS = {
+    'darwin': [
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta',
+        '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+    ],
+    'linux': [
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chrome',
+        '/opt/google/chrome/google-chrome',
+        '/opt/google/chrome/chrome',
+        '/snap/bin/chromium',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+    ],
+    'win32': [
+        r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+        r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+        # WSL: access Windows-side Chrome via /mnt/c
+        '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe',
+        '/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+    ],
+}
+
+
+def _discover_system_chrome_executable() -> str | None:
+    """Find a system-installed Google Chrome. Returns absolute path or None.
+
+    On WSL we also check /mnt/c paths so Linux-WSL invocations can drive the
+    Windows-side Chrome the user already uses."""
+    candidates: list[str] = []
+    if sys.platform.startswith('darwin'):
+        candidates.extend(_SYSTEM_CHROME_PATHS['darwin'])
+    elif sys.platform.startswith('win'):
+        candidates.extend(_SYSTEM_CHROME_PATHS['win32'])
+    elif sys.platform.startswith('linux'):
+        candidates.extend(_SYSTEM_CHROME_PATHS['linux'])
+        # WSL: prefer Linux-side Chrome if installed; otherwise fall through
+        # to Windows-side Chrome under /mnt/c.
+        candidates.extend(_SYSTEM_CHROME_PATHS['win32'])
+
+    for candidate in candidates:
+        try:
+            if Path(candidate).exists():
+                return candidate
+        except Exception:
+            continue
+    return None
+
+
 def _resolve_playwright_fallback_browser_name() -> str | None:
     try:
         sync_playwright = _import_playwright_sync_api()
     except Exception:
         return None
+
+    # Prefer system-installed Chrome (`channel='chrome'`) so the user gets
+    # their real browser profile + extensions instead of a bare Playwright
+    # chromium that triggers more bot checks.
+    if _discover_system_chrome_executable() is not None:
+        return 'chrome'
 
     try:
         with sync_playwright() as playwright:
