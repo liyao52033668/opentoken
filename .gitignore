@@ -31,6 +31,8 @@ temp/
 
 # Local planning / generated reports
 docs/superpowers/
+CLAUDE.md
+AGENTS.md
 findings.md
 progress.md
 task_plan.md
