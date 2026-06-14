@@ -29,6 +29,20 @@ OpenToken 做的：(1) 凭证统一管理；(2) 本地 OpenAI 兼容 HTTP 接口
 - **NVIDIA NIM** — `integrate.api.nvidia.com/v1`，免费 40 RPM。覆盖 DeepSeek R1 / Llama 3.3 70B / Qwen 2.5 72B / Mixtral 8x22B 等。注册 NVIDIA 账号拿 `nvapi-...` key 就能用，0 信用卡。
 - **Unified Proxy (LiteLLM)** — 一个 adapter 接 100+ 后端（OpenRouter / Groq / Together / Bedrock / Anthropic / OpenAI / Perplexity / Cohere / Mistral / xAI / Fireworks / DeepInfra / Azure / Ollama / LM Studio …）。软依赖，`uv sync --extra unified` 装。
 
+## 请求处理方式分类
+
+根据请求路由方式，provider 分为两类：
+
+**📡 HTTP Providers（API直连）**
+
+直接通过 `httpx` 调用 provider 的官方 API，无需浏览器：
+- DeepSeek · Claude · Kimi · Manus · Mimo · NVIDIA NIM · Unified Proxy (LiteLLM)
+
+**🌐 Browser Providers（浏览器池）**
+
+通过 Camoufox 浏览器池进行请求，模拟网页登录态：
+- Doubao · Qwen International · Qwen China · ChatGPT · Gemini · Grok · GLM International · GLM China
+
 ## /v1/models 全部实时发现
 
 每家 provider 各自的发现路径见下表；任何一家失败软降级为空，结果缓存在 `~/.opentoken/model-catalog-cache.json`（TTL 6h）。冷启动并发跑所有发现器并尊重 45s 全局 deadline。
